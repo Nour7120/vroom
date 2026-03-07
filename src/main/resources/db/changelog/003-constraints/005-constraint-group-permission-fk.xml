@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="005-constraint-group-permission-fk" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE group_permission
+                ADD CONSTRAINT fk_group_permission_group
+                    FOREIGN KEY (group_id) REFERENCES "group" (id) ON DELETE CASCADE,
+                ADD CONSTRAINT fk_group_permission_permission
+                    FOREIGN KEY (permission_id) REFERENCES permission (id) ON DELETE CASCADE,
+                ADD CONSTRAINT uq_group_permission_membership
+                    UNIQUE (group_id, permission_id);
+        </sql>
+    </changeSet>
+</databaseChangeLog>

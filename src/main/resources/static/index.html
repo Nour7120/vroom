@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>❤️ عيد ميلاد ميورتي ❤️</title>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Tajawal:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            background: radial-gradient(ellipse at top, #1a0010 0%, #0d0008 60%, #000 100%);
+            font-family: 'Amiri', serif;
+            text-align: center;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ── Floating particles canvas ── */
+        canvas { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+
+        /* ── Main card ── */
+        .card {
+            position: relative;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(212, 175, 55, 0.35);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border-radius: 28px;
+            padding: 52px 60px 44px;
+            max-width: 680px;
+            width: 90vw;
+            box-shadow: 0 0 60px rgba(212, 175, 55, 0.12), 0 0 120px rgba(180, 0, 70, 0.15);
+        }
+
+        /* ── Decorative line ── */
+        .divider {
+            width: 120px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #d4af37, transparent);
+            margin: 18px auto;
+        }
+
+        /* ── Rose icon ── */
+        .rose { font-size: 42px; display: block; margin-bottom: 4px; filter: drop-shadow(0 0 10px #ff4d6d); }
+
+        /* ── Heading ── */
+        h1 {
+            font-family: 'Amiri', serif;
+            font-size: clamp(1.4rem, 4vw, 2rem);
+            font-weight: 700;
+            color: #f5e0c3;
+            letter-spacing: 1px;
+            line-height: 1.6;
+            text-shadow: 0 0 18px rgba(212, 175, 55, 0.5);
+        }
+
+        /* ── Countdown label ── */
+        .countdown-label {
+            font-family: 'Tajawal', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 300;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: #d4af37;
+            margin-top: 28px;
+            margin-bottom: 10px;
+            opacity: 0.85;
+        }
+
+        /* ── Timer digits ── */
+        #timer {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 10px auto 28px;
+            direction: ltr;
+        }
+
+        .time-block {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .time-digit {
+            background: rgba(212, 175, 55, 0.08);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            border-radius: 12px;
+            padding: 10px 20px;
+            font-size: clamp(2rem, 6vw, 3.2rem);
+            font-family: 'Tajawal', sans-serif;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
+            min-width: 88px;
+            line-height: 1.1;
+        }
+
+        .time-unit {
+            font-family: 'Tajawal', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 300;
+            letter-spacing: 2px;
+            color: #d4af37;
+            opacity: 0.8;
+        }
+
+        .time-sep {
+            font-size: clamp(2rem, 6vw, 3.2rem);
+            color: #d4af37;
+            align-self: flex-start;
+            padding-top: 10px;
+            opacity: 0.6;
+            font-weight: 300;
+        }
+
+        /* ── Button ── */
+        button {
+            margin-top: 4px;
+            padding: 11px 32px;
+            font-family: 'Tajawal', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 400;
+            letter-spacing: 2px;
+            border: 1px solid rgba(212, 175, 55, 0.5);
+            border-radius: 50px;
+            background: transparent;
+            color: #d4af37;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0.6;
+        }
+        button:hover {
+            background: rgba(212, 175, 55, 0.12);
+            opacity: 1;
+        }
+
+        /* ── Reveal message ── */
+        #message {
+            display: none;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 1.2s ease, transform 1.2s ease;
+        }
+        #message.visible {
+            display: block;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #message .big-title {
+            font-size: clamp(1.2rem, 4vw, 1.8rem);
+            color: #f5c6d0;
+            font-weight: 700;
+            text-shadow: 0 0 24px rgba(255, 77, 109, 0.7);
+            margin-bottom: 10px;
+        }
+        #message .poem {
+            font-family: 'Amiri', serif;
+            font-size: clamp(1rem, 2.8vw, 1.25rem);
+            color: #f0d9c8;
+            line-height: 2.2;
+            opacity: 0.92;
+        }
+        #message .cake { font-size: 48px; margin: 18px 0 8px; display: block; filter: drop-shadow(0 0 14px #ff4d6d); }
+
+        /* ── Floating petals (CSS) ── */
+        .petal {
+            position: fixed;
+            pointer-events: none;
+            z-index: 1;
+            animation: floatUp linear infinite;
+            opacity: 0;
+        }
+        @keyframes floatUp {
+            0%   { transform: translateY(110vh) rotate(0deg);   opacity: 0; }
+            10%  { opacity: 1; }
+            90%  { opacity: 0.7; }
+            100% { transform: translateY(-10vh) rotate(720deg); opacity: 0; }
+        }
+    </style>
+</head>
+
+<body>
+
+<canvas id="stars"></canvas>
+
+<div class="card">
+
+    <span class="rose">🌹</span>
+    <div class="divider"></div>
+
+    <h1>✨ العدّ التنازلي لعيد ميلاد <em style="color:#ffb3c6; font-style:italic; text-shadow:0 0 22px rgba(255,100,130,0.8);">Mayora</em> ✨</h1>
+
+    <div class="divider"></div>
+
+    <!-- Countdown -->
+    <div id="countdown-section">
+        <p class="countdown-label">الوقت المتبقي</p>
+        <div id="timer">
+            <div class="time-block">
+                <div class="time-digit" id="d-hours">00</div>
+                <div class="time-unit">ساعة</div>
+            </div>
+            <div class="time-sep">:</div>
+            <div class="time-block">
+                <div class="time-digit" id="d-minutes">00</div>
+                <div class="time-unit">دقيقة</div>
+            </div>
+            <div class="time-sep">:</div>
+            <div class="time-block">
+                <div class="time-digit" id="d-seconds">00</div>
+                <div class="time-unit">ثانية</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reveal message -->
+    <div id="message">
+        <!-- Message content will be generated dynamically -->
+    </div>
+
+</div>
+
+<script>
+    /* ──────────────────── Star / shimmer canvas ──────────────────── */
+    (function () {
+        const canvas = document.getElementById('stars');
+        const ctx = canvas.getContext('2d');
+        let stars = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        for (let i = 0; i < 160; i++) {
+            stars.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                r: Math.random() * 1.4 + 0.2,
+                alpha: Math.random(),
+                speed: Math.random() * 0.008 + 0.002,
+                phase: Math.random() * Math.PI * 2
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            stars.forEach(s => {
+                s.phase += s.speed;
+                const a = 0.3 + 0.7 * Math.abs(Math.sin(s.phase));
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(212,175,55,${(a * 0.7).toFixed(2)})`;
+                ctx.fill();
+            });
+            requestAnimationFrame(draw);
+        }
+        draw();
+    })();
+
+    /* ──────────────────── Countdown ──────────────────── */
+    const targetDate = new Date("March 9, 2026 00:00:00").getTime();
+
+    const pad = n => String(n).padStart(2, '0');
+
+    const ticker = setInterval(function () {
+        const now = new Date().getTime();
+        const distance = targetDate - now;
+
+        if (distance <= 0) { showMessage(); return; }
+
+        const totalHours = Math.floor(distance / (1000 * 60 * 60));
+        const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+        document.getElementById('d-hours').textContent   = pad(totalHours);
+        document.getElementById('d-minutes').textContent = pad(minutes);
+        document.getElementById('d-seconds').textContent = pad(seconds);
+    }, 1000);
+
+
+    function showMessage() {
+        clearInterval(ticker);
+        document.getElementById('countdown-section').style.display = 'none';
+        const msg = document.getElementById('message');
+
+        // Dynamically generate the message content (obfuscated)
+        const parts = [
+            String.fromCharCode(10084, 65039, 32, 1603, 1604, 32, 1587, 1606, 1577, 32, 1608, 1571, 1606, 1578, 1616, 32, 1571, 1580, 1605, 1604, 32, 1581, 1575, 1580, 1577, 32, 1601, 1610, 32, 1581, 1610, 1575, 1578, 1610, 32, 10084, 65039),
+            String.fromCharCode(1605, 1610, 1608, 1585, 1577, 32, 1610, 1575, 32, 1605, 1610, 1608, 1585, 1577) + String.fromCharCode(1577, 1577, 1577, 1577, 1577, 1577, 1577, 1577, 1577, 44),
+            String.fromCharCode(1603, 1604, 32, 1587, 1606, 1577, 32, 1608, 1575, 1606, 1578, 1610, 32, 1591, 1610, 1576, 1577, 32, 1610, 1575, 32, 1581, 1576, 1610, 1576, 1577, 32, 1602, 1604, 1576, 1610, 44),
+            String.fromCharCode(1608, 1593, 1602, 1576, 1575, 1604, 32, 1610, 1575, 32, 1585, 1576, 32, 1575, 1604, 1601, 32, 1605, 1604, 1610, 1608, 1606, 32, 1587, 1606, 1577, 46),
+            String.fromCharCode(1608, 1578, 1581, 1602, 1602, 1610, 32, 1603, 1604, 32, 1575, 1604, 1604, 1610, 32, 1606, 1601, 1587, 1603, 32, 1601, 1610, 1607, 32, 1608, 1575, 1588, 1608, 1601, 1603, 32, 1583, 1575, 1610, 1605, 1575, 32, 1605, 1576, 1587, 1608, 1591, 1577, 32, 1608, 1605, 1585, 1578, 1575, 1581, 1577, 46),
+            String.fromCharCode(1605, 1576, 1587, 1608, 1591, 32, 1575, 1608, 1610, 32, 1575, 1606, 1603, 32, 1576, 1602, 1610, 1578, 1610, 32, 1601, 1581, 1610, 1575, 1578, 1610, 46),
+            String.fromCharCode(1593, 1610, 1583, 32, 1605, 1610, 1604, 1575, 1583, 32, 1587, 1593, 1610, 1583, 32, 1610, 1575, 32, 1585, 1608, 1608, 1608, 1608, 1581, 32, 1602, 1604, 1576, 1610, 32) + '❤️'
+        ];
+
+        msg.innerHTML = `
+            <p class="big-title">${parts[0]}</p>
+            <div class="divider"></div>
+            <p class="poem">
+                ${parts[1]}<br>
+                ${parts[2]}<br>
+                ${parts[3]}<br>
+                ${parts[4]}<br>
+                ${parts[5]}<br><br>
+                ${parts[6]}<br>
+            </p>
+            <span class="cake">🎂</span>
+            <div class="divider"></div>
+        `;
+
+        msg.style.display = 'block';
+        requestAnimationFrame(() => requestAnimationFrame(() => msg.classList.add('visible')));
+        launchPetals();
+    }
+
+    /* ──────────────────── Petal / heart rain ──────────────────── */
+    const emojis = ['🌹', '❤️', '✨', '🌸', '💖', '💫'];
+
+    function launchPetals() {
+        setInterval(() => spawnPetal(), 250);
+    }
+
+    // Gentle ambient petals always running
+    setInterval(() => spawnPetal(), 400);
+
+    function spawnPetal() {
+        const el = document.createElement('div');
+        el.className = 'petal';
+        el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+        el.style.left = (Math.random() * 100) + 'vw';
+        el.style.fontSize = (12 + Math.random() * 22) + 'px';
+        const dur = 7 + Math.random() * 6;
+        el.style.animationDuration = dur + 's';
+        el.style.animationDelay = (Math.random() * 3) + 's';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), (dur + 3.5) * 1000);
+    }
+</script>
+
+</body>
+</html>

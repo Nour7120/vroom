@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Adds the three enum columns required by the rebuilt attachment module.
+        Idempotent: each column is only added if it does not already exist,
+        so this runs safely on both fresh databases and servers that already
+        had the column added manually.
+    -->
+    <changeSet id="012-alter-attachment-add-enum-columns" author="nour">
+        <sql splitStatements="false" stripComments="true">
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'attachment' AND column_name = 'storage_provider'
+                ) THEN
+                    ALTER TABLE attachment ADD COLUMN storage_provider VARCHAR(20) NOT NULL DEFAULT 'LOCAL';
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'attachment' AND column_name = 'visibility'
+                ) THEN
+                    ALTER TABLE attachment ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'PRIVATE';
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'attachment' AND column_name = 'category'
+                ) THEN
+                    ALTER TABLE attachment ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT 'OTHER';
+                END IF;
+            END $$;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

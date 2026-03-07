@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="007-index-verification-request" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_verification_request_user_profile_id ON verification_request (user_profile_id);
+            CREATE INDEX IF NOT EXISTS idx_verification_request_status          ON verification_request (status);
+            CREATE INDEX IF NOT EXISTS idx_verification_request_type            ON verification_request (verification_type);
+            CREATE INDEX IF NOT EXISTS idx_verification_request_is_deleted      ON verification_request (is_deleted);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+
