@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Indexes for the three enum columns added to the attachment table
+        by 012-alter-attachment-add-enum-columns.xml.
+    -->
+    <changeSet id="010-index-attachment-enum-columns" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_attachment_visibility ON attachment (visibility);
+            CREATE INDEX IF NOT EXISTS idx_attachment_category   ON attachment (category);
+            CREATE INDEX IF NOT EXISTS idx_attachment_created_by ON attachment (created_by);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

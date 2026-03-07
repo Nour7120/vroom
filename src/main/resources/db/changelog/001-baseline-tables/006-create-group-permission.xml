@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="006-create-group-permission" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE TABLE IF NOT EXISTS group_permission (
+                group_id        BIGINT          NOT NULL,
+                permission_id   BIGINT          NOT NULL,
+                is_deleted      BOOLEAN         NOT NULL DEFAULT FALSE,
+                deleted_at      TIMESTAMPTZ,
+                deleted_by      VARCHAR(255),
+                created_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+                created_by      VARCHAR(255),
+                updated_by      VARCHAR(255),
+                PRIMARY KEY (group_id, permission_id)
+            );
+            COMMENT ON TABLE group_permission IS 'Junction table mapping groups to permissions';
+        </sql>
+    </changeSet>
+</databaseChangeLog>

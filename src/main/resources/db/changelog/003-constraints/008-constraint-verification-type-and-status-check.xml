@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="001-constraint-user-profile-unique" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE verification_request
+                ADD CONSTRAINT chk_verification_request_type
+                    CHECK (verification_type IN ('EMAIL', 'GOVERNMENT_ID', 'PREMIUM')),
+                ADD CONSTRAINT chk_verification_request_status
+                    CHECK ("status" IN ('PENDING', 'VERIFIED', 'REJECTED', 'EXPIRED'));
+        </sql>
+    </changeSet>
+</databaseChangeLog>

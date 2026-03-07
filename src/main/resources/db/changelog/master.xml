@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Migration execution order:
+          1. baseline-tables  – pure CREATE TABLE (no FK references, no indexes)
+          2. constraints      – UNIQUE + FOREIGN KEY + junction-table FKs
+          3. indexes          – all CREATE INDEX per table
+          4. (reserved)       – future data/seed changesets
+    -->
+
+    <includeAll path="db/changelog/001-baseline-tables" relativeToChangelogFile="false"/>
+    <includeAll path="db/changelog/003-constraints"     relativeToChangelogFile="false"/>
+    <includeAll path="db/changelog/004-indexes"         relativeToChangelogFile="false"/>
+
+</databaseChangeLog>

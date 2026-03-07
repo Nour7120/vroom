@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Adds last_verification_email_sent_at to user_profile.
+        Used by the registration module to enforce resend throttling:
+          - minimum interval between resend attempts
+          - daily maximum retry cap (tracked in-process)
+    -->
+    <changeSet id="010-alter-user-profile-add-last-verification-email-sent-at" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE user_profile
+                ADD COLUMN IF NOT EXISTS last_verification_email_sent_at TIMESTAMPTZ;
+
+            COMMENT ON COLUMN user_profile.last_verification_email_sent_at
+                IS 'Timestamp of the last Keycloak verification email dispatch; used to enforce resend cooldown';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+
