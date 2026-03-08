@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="013-index-listing-attachment" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_listing_attachment_listing_id ON listing_attachment (listing_id);
+            CREATE INDEX IF NOT EXISTS idx_listing_attachment_order      ON listing_attachment (listing_id, display_order);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

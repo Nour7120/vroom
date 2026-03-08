@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="012-constraint-vehicle-unique" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE vehicle
+                ADD CONSTRAINT uq_vehicle_registration_number
+                    UNIQUE (registration_number);
+
+            ALTER TABLE vehicle
+                ADD CONSTRAINT uq_vehicle_vin
+                    UNIQUE (vin);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+
