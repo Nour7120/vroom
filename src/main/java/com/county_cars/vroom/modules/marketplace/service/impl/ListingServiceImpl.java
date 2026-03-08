@@ -13,6 +13,7 @@ import com.county_cars.vroom.modules.keycloak.CurrentUserService;
 import com.county_cars.vroom.modules.marketplace.dto.request.AddListingImagesRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateEnquiryRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateListingRequest;
+import com.county_cars.vroom.modules.marketplace.dto.request.SearchListingsRequest;
 import com.county_cars.vroom.modules.marketplace.dto.response.EnquiryResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingDetailsResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingSummaryResponse;
@@ -24,6 +25,7 @@ import com.county_cars.vroom.modules.marketplace.mapper.ListingMapper;
 import com.county_cars.vroom.modules.marketplace.repository.ListingAttachmentRepository;
 import com.county_cars.vroom.modules.marketplace.repository.ListingEnquiryRepository;
 import com.county_cars.vroom.modules.marketplace.repository.ListingRepository;
+import com.county_cars.vroom.modules.marketplace.repository.ListingSearchRepository;
 import com.county_cars.vroom.modules.marketplace.service.ListingService;
 import com.county_cars.vroom.modules.user_profile.entity.UserProfile;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ public class ListingServiceImpl implements ListingService {
     private final ListingRepository            listingRepository;
     private final ListingAttachmentRepository  listingAttachmentRepository;
     private final ListingEnquiryRepository     listingEnquiryRepository;
+    private final ListingSearchRepository      listingSearchRepository;
     private final VehicleRepository            vehicleRepository;
     private final AttachmentRepository         attachmentRepository;
     private final ListingMapper                listingMapper;
@@ -169,6 +172,13 @@ public class ListingServiceImpl implements ListingService {
     public Page<ListingSummaryResponse> browseActiveListings(Pageable pageable) {
         return listingRepository
                 .findAllByStatus(ListingStatus.ACTIVE, pageable)
+                .map(listingMapper::toSummaryResponse);
+    }
+
+    @Override
+    public Page<ListingSummaryResponse> searchListings(SearchListingsRequest filter, Pageable pageable) {
+        return listingSearchRepository
+                .search(filter, pageable)
                 .map(listingMapper::toSummaryResponse);
     }
 

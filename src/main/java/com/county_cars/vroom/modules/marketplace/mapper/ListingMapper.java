@@ -19,6 +19,7 @@ public interface ListingMapper {
     @Mapping(target = "vehicleMake",                source = "vehicle.make")
     @Mapping(target = "vehicleModel",               source = "vehicle.model")
     @Mapping(target = "vehicleYearOfManufacture",   source = "vehicle.yearOfManufacture")
+    @Mapping(target = "vehicleCurrentMileage",      source = "vehicle.currentMileage")
     @Mapping(target = "primaryImageId",             source = "primaryImage.id")
     @Mapping(target = "primaryImageFileName",       source = "primaryImage.fileName")
     ListingSummaryResponse toSummaryResponse(Listing listing);

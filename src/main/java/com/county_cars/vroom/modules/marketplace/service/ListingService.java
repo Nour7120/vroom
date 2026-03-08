@@ -3,6 +3,7 @@ package com.county_cars.vroom.modules.marketplace.service;
 import com.county_cars.vroom.modules.marketplace.dto.request.AddListingImagesRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateEnquiryRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateListingRequest;
+import com.county_cars.vroom.modules.marketplace.dto.request.SearchListingsRequest;
 import com.county_cars.vroom.modules.marketplace.dto.response.EnquiryResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingDetailsResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingSummaryResponse;
@@ -24,6 +25,8 @@ public interface ListingService {
     // ── Buyer / public operations ─────────────────────────────────────────────
 
     Page<ListingSummaryResponse> browseActiveListings(Pageable pageable);
+
+    Page<ListingSummaryResponse> searchListings(SearchListingsRequest filter, Pageable pageable);
 
     ListingDetailsResponse getListingDetails(Long listingId);
 

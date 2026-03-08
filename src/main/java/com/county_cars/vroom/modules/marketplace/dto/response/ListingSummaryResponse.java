@@ -27,6 +27,9 @@ public class ListingSummaryResponse {
     @Schema(description = "Year of manufacture", example = "2019")
     private Integer vehicleYearOfManufacture;
 
+    @Schema(description = "Current mileage", example = "45000")
+    private Long vehicleCurrentMileage;
+
     @Schema(description = "Listing location", example = "Dublin, Ireland")
     private String location;
 

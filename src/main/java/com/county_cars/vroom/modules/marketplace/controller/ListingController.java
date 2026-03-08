@@ -3,6 +3,7 @@ package com.county_cars.vroom.modules.marketplace.controller;
 import com.county_cars.vroom.modules.marketplace.dto.request.AddListingImagesRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateEnquiryRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateListingRequest;
+import com.county_cars.vroom.modules.marketplace.dto.request.SearchListingsRequest;
 import com.county_cars.vroom.modules.marketplace.dto.response.EnquiryResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingDetailsResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingSummaryResponse;
@@ -69,6 +70,19 @@ public class ListingController {
     public ResponseEntity<Page<ListingSummaryResponse>> browse(
             @PageableDefault(size = 20, sort = "publishedAt") Pageable pageable) {
         return ResponseEntity.ok(listingService.browseActiveListings(pageable));
+    }
+
+    // ── Buyer: search with filters ────────────────────────────────────────────
+
+    @GetMapping("/search")
+    @Operation(summary = "Search active listings with dynamic filters",
+               description = "Supports filtering by make, model, year, price, mileage, " +
+                             "fuelType, transmission, colour, location. " +
+                             "Sort by: price, publishedAt, yearOfManufacture, currentMileage.")
+    public ResponseEntity<Page<ListingSummaryResponse>> search(
+            @Valid SearchListingsRequest filter,
+            @PageableDefault(size = 20, sort = "publishedAt") Pageable pageable) {
+        return ResponseEntity.ok(listingService.searchListings(filter, pageable));
     }
 
     // ── Buyer: listing details ────────────────────────────────────────────────
