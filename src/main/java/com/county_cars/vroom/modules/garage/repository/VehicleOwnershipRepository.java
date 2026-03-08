@@ -15,5 +15,7 @@ public interface VehicleOwnershipRepository extends JpaRepository<VehicleOwnersh
     Optional<VehicleOwnership> findByVehicleIdAndIsCurrentTrue(Long vehicleId);
 
     List<VehicleOwnership> findAllByOwnerIdOrderByOwnershipStartDesc(Long ownerId);
+
+    List<VehicleOwnership> findAllByOwnerIdAndIsCurrentTrueOrderByOwnershipStartDesc(Long ownerId);
 }
 
