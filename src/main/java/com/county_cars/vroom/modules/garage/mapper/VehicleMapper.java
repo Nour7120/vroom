@@ -17,13 +17,6 @@ public interface VehicleMapper {
      */
     @Mapping(target = "id",              ignore = true)
     @Mapping(target = "ownerKeycloakId", ignore = true)
-    @Mapping(target = "isDeleted",       ignore = true)
-    @Mapping(target = "createdAt",       ignore = true)
-    @Mapping(target = "updatedAt",       ignore = true)
-    @Mapping(target = "deletedAt",       ignore = true)
-    @Mapping(target = "createdBy",       ignore = true)
-    @Mapping(target = "updatedBy",       ignore = true)
-    @Mapping(target = "deletedBy",       ignore = true)
     Vehicle toEntity(CreateVehicleRequest request);
 
     /** Maps a Vehicle entity to the public response DTO. */
@@ -36,17 +29,9 @@ public interface VehicleMapper {
      * Null fields in the request are ignored so callers only need to send changed fields.
      */
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
-    @Mapping(target = "id",              ignore = true)
+    @Mapping(target = "id",                 ignore = true)
     @Mapping(target = "registrationNumber", ignore = true)
-    @Mapping(target = "vin",             ignore = true)
-    @Mapping(target = "ownerKeycloakId", ignore = true)
-    @Mapping(target = "isDeleted",       ignore = true)
-    @Mapping(target = "createdAt",       ignore = true)
-    @Mapping(target = "updatedAt",       ignore = true)
-    @Mapping(target = "deletedAt",       ignore = true)
-    @Mapping(target = "createdBy",       ignore = true)
-    @Mapping(target = "updatedBy",       ignore = true)
-    @Mapping(target = "deletedBy",       ignore = true)
+    @Mapping(target = "vin",                ignore = true)
+    @Mapping(target = "ownerKeycloakId",    ignore = true)
     void updateEntity(UpdateVehicleRequest request, @MappingTarget Vehicle vehicle);
 }
-

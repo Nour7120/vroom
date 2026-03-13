@@ -37,6 +37,7 @@ public class VehicleOwnership extends BaseEntity {
     @Column(name = "ownership_end")
     private LocalDate ownershipEnd;
 
+    @Builder.Default
     @Column(name = "is_current", nullable = false)
     private Boolean isCurrent = Boolean.FALSE;
 }
