@@ -7,13 +7,15 @@
 
     <!--
         Migration execution order:
-          1. baseline-tables  – pure CREATE TABLE (no FK references, no indexes)
-          2. constraints      – UNIQUE + FOREIGN KEY + junction-table FKs
-          3. indexes          – all CREATE INDEX per table
-          4. (reserved)       – future data/seed changesets
+          1. baseline-tables  – core domain tables shared across the application (users, auth, attachments, audit)
+          2. feature-tables   – feature-specific tables (garage, marketplace)
+          3. constraints      – UNIQUE + FOREIGN KEY + CHECK constraints across all tables
+          4. indexes          – all CREATE INDEX statements
+          5. (reserved)       – future data/seed changesets
     -->
 
     <includeAll path="db/changelog/001-baseline-tables" relativeToChangelogFile="false"/>
+    <includeAll path="db/changelog/002-feature-tables"  relativeToChangelogFile="false"/>
     <includeAll path="db/changelog/003-constraints"     relativeToChangelogFile="false"/>
     <includeAll path="db/changelog/004-indexes"         relativeToChangelogFile="false"/>
 

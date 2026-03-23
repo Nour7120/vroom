@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="022-index-vehicle-media" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_vehicle_media_vehicle_id
+                ON vehicle_media (vehicle_id);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_media_order
+                ON vehicle_media (vehicle_id, display_order);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

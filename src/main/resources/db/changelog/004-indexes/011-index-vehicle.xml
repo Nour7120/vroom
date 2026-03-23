@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="011-index-vehicle" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            -- Ownership lookup (garage module)
+            CREATE INDEX IF NOT EXISTS idx_vehicle_owner_keycloak_id      ON vehicle (owner_keycloak_id);
+
+            -- Soft-delete filter
+            CREATE INDEX IF NOT EXISTS idx_vehicle_is_deleted              ON vehicle (is_deleted);
+
+            -- Single-field identity lookups
+            CREATE INDEX IF NOT EXISTS idx_vehicle_registration            ON vehicle (registration_number);
+
+            -- Marketplace search filters
+            CREATE INDEX IF NOT EXISTS idx_vehicle_make_model              ON vehicle (make, model);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_make_model_year         ON vehicle (make, model, year_of_manufacture);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_make_model_mileage      ON vehicle (make, model, current_mileage);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_fuel_type               ON vehicle (fuel_type);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_transmission            ON vehicle (transmission);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_colour                  ON vehicle (colour);
+        </sql>
+    </changeSet>
+</databaseChangeLog>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="016-index-vehicle-mot-history" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_vehicle_mot_history_vehicle_id
+                ON vehicle_mot_history (vehicle_id);
+            CREATE INDEX IF NOT EXISTS idx_vehicle_mot_history_vehicle_date
+                ON vehicle_mot_history (vehicle_id, test_date DESC);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

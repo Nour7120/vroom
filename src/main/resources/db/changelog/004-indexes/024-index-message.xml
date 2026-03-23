@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="024-index-message" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            -- Primary timeline query: load messages for a chat newest-first
+            CREATE INDEX IF NOT EXISTS idx_message_chat_created_at
+                ON message (chat_id, created_at DESC);
+
+            -- Unread message lookup: find SENT messages for a given receiver
+            CREATE INDEX IF NOT EXISTS idx_message_undelivered
+                ON message (chat_id, status)
+                WHERE status IN ('SENT', 'DELIVERED');
+
+            -- Sender index for deduplication guard
+            CREATE INDEX IF NOT EXISTS idx_message_sender
+                ON message (sender_id);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

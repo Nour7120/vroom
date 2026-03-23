@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="018-constraint-garage-vehicle-fk" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE garage_vehicle
+                ADD CONSTRAINT fk_garage_vehicle_vehicle
+                    FOREIGN KEY (vehicle_id) REFERENCES vehicle (id);
+
+            ALTER TABLE garage_vehicle
+                ADD CONSTRAINT fk_garage_vehicle_user
+                    FOREIGN KEY (user_id) REFERENCES user_profile (id);
+
+            ALTER TABLE garage_vehicle
+                ADD CONSTRAINT uq_garage_vehicle_user_vehicle
+                    UNIQUE (user_id, vehicle_id);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="010-constraint-listing-attachment-fk" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE listing_attachment
+                ADD CONSTRAINT fk_listing_attachment_listing
+                    FOREIGN KEY (listing_id) REFERENCES listing (id);
+
+            ALTER TABLE listing_attachment
+                ADD CONSTRAINT fk_listing_attachment_attachment
+                    FOREIGN KEY (attachment_id) REFERENCES attachment (id);
+
+            ALTER TABLE listing_attachment
+                ADD CONSTRAINT uq_listing_attachment
+                    UNIQUE (listing_id, attachment_id);
+
+            ALTER TABLE listing_attachment
+                ADD CONSTRAINT uq_listing_attachment_order
+                    UNIQUE (listing_id, display_order);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

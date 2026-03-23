@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="023-index-chat" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_chat_participant_one
+                ON chat (participant_one);
+            CREATE INDEX IF NOT EXISTS idx_chat_participant_two
+                ON chat (participant_two);
+            CREATE INDEX IF NOT EXISTS idx_chat_last_message_at
+                ON chat (participant_one, last_message_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_chat_listing
+                ON chat (listing_id) WHERE listing_id IS NOT NULL;
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

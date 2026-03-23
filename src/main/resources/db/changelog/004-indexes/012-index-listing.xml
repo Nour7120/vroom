@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="012-index-listing" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            CREATE INDEX IF NOT EXISTS idx_listing_status        ON listing (status);
+            CREATE INDEX IF NOT EXISTS idx_listing_seller        ON listing (seller_id);
+            CREATE INDEX IF NOT EXISTS idx_listing_is_deleted    ON listing (is_deleted);
+            CREATE INDEX IF NOT EXISTS idx_listing_marketplace   ON listing (status, published_at DESC)
+                WHERE is_deleted = FALSE;
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+
