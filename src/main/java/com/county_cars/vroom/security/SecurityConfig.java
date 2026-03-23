@@ -49,9 +49,9 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/actuator/health",
             "/actuator/info",
-            "/api/v1/auth/**",        // register, resend-verification, forgot-password — no token needed
-            "/internal/keycloak/events" // Keycloak webhook — secured by secret header, not JWT
-            // NOTE: /api/v1/account/** is intentionally NOT listed here — requires a valid JWT
+            "/api/v1/auth/**",
+            "/internal/keycloak/events",
+            "/ws/chat"          // WebSocket upgrade — JWT validated in ChatHandshakeInterceptor
     };
 
     // ── Main filter chain ─────────────────────────────────────────────────────────

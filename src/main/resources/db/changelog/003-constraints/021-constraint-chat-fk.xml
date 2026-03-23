@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="021-constraint-chat-fk" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE chat
+                ADD CONSTRAINT fk_chat_participant_one
+                    FOREIGN KEY (participant_one) REFERENCES user_profile (id);
+
+            ALTER TABLE chat
+                ADD CONSTRAINT fk_chat_participant_two
+                    FOREIGN KEY (participant_two) REFERENCES user_profile (id);
+
+            ALTER TABLE chat
+                ADD CONSTRAINT uq_chat_participants_listing
+                    UNIQUE (participant_one, participant_two, listing_id);
+
+            ALTER TABLE chat
+                ADD CONSTRAINT chk_chat_participant_order
+                    CHECK (participant_one &lt; participant_two);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+
