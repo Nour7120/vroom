@@ -5,6 +5,7 @@ import com.county_cars.vroom.modules.attachment.dto.response.AttachmentResponse;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
 import com.county_cars.vroom.modules.attachment.service.AttachmentService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/v1/attachments")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Attachments", description = "Upload, download and delete file attachments")
 public class AttachmentController {
 

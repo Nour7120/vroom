@@ -1,5 +1,6 @@
 package com.county_cars.vroom.modules.keycloak.webhooks;
 
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/internal/keycloak/events")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Keycloak Webhook", description = "Internal endpoint for Keycloak event callbacks")
 public class KeycloakEventWebhookController {
 

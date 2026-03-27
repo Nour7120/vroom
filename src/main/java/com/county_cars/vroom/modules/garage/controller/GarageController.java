@@ -5,6 +5,7 @@ import com.county_cars.vroom.modules.garage.dto.request.UpdateGarageCategoryRequ
 import com.county_cars.vroom.modules.garage.dto.request.UpdateVehicleNotesRequest;
 import com.county_cars.vroom.modules.garage.dto.response.GarageVehicleResponse;
 import com.county_cars.vroom.modules.garage.service.GarageService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/garage")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Digital Garage", description = "Manage the user's personal vehicle garage")
 public class GarageController {
 

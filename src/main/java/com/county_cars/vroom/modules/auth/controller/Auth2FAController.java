@@ -3,6 +3,7 @@ package com.county_cars.vroom.modules.auth.controller;
 import com.county_cars.vroom.common.exception.ApiErrorResponse;
 import com.county_cars.vroom.modules.auth.dto.TwoFactorStatusResponse;
 import com.county_cars.vroom.modules.auth.service.Auth2FAService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -35,6 +36,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/auth/2fa")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Two-Factor Authentication", description = "TOTP-based 2FA management for the authenticated user")
 public class Auth2FAController {
 
