@@ -5,6 +5,7 @@ import com.county_cars.vroom.modules.verification.dto.request.ReviewVerification
 import com.county_cars.vroom.modules.verification.dto.response.VerificationResponse;
 import com.county_cars.vroom.modules.verification.entity.VerificationStatus;
 import com.county_cars.vroom.modules.verification.service.VerificationService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/verifications")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Verifications", description = "Manage identity and document verification requests")
 public class VerificationController {
 

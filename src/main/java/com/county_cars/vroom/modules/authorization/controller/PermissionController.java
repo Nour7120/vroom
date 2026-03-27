@@ -3,6 +3,7 @@ package com.county_cars.vroom.modules.authorization.controller;
 import com.county_cars.vroom.modules.authorization.dto.request.PermissionRequest;
 import com.county_cars.vroom.modules.authorization.dto.response.PermissionResponse;
 import com.county_cars.vroom.modules.authorization.service.AuthorizationService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/permissions")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Permissions", description = "Manage application permissions")
 @PreAuthorize("hasRole('ADMIN')")
 public class PermissionController {

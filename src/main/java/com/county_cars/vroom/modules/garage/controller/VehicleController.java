@@ -4,6 +4,7 @@ import com.county_cars.vroom.modules.garage.dto.request.CreateVehicleRequest;
 import com.county_cars.vroom.modules.garage.dto.request.UpdateVehicleRequest;
 import com.county_cars.vroom.modules.garage.dto.response.VehicleResponse;
 import com.county_cars.vroom.modules.garage.service.VehicleService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +18,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/vehicles")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "Vehicles", description = "Register and manage vehicle identities")
 public class VehicleController {
 

@@ -6,6 +6,7 @@ import com.county_cars.vroom.modules.user_profile.dto.request.UserLocationReques
 import com.county_cars.vroom.modules.user_profile.dto.response.UserLocationResponse;
 import com.county_cars.vroom.modules.user_profile.dto.response.UserProfileResponse;
 import com.county_cars.vroom.modules.user_profile.service.UserProfileService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -23,6 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/user-profiles")
 @RequiredArgsConstructor
+@Hidden
 @Tag(name = "User Profiles", description = "CRUD operations for user profiles and locations")
 public class UserProfileController {
 
