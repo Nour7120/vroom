@@ -45,4 +45,9 @@ public class Attachment extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "category", nullable = false, length = 50)
     private AttachmentCategory category;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    @Builder.Default
+    private AttachmentStatus status = AttachmentStatus.UPLOADED;
 }

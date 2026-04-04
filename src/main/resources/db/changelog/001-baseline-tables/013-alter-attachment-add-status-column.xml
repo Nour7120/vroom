@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Adds the `status` column to the attachment table to track attachment lifecycle.
+        Idempotent: the column is only added if it does not already exist,
+        so this runs safely on both fresh databases and servers that already
+        had the column added manually.
+
+        Lifecycle values: UPLOADED | LINKED | DELETED
+    -->
+    <changeSet id="013-alter-attachment-add-status-column" author="nour">
+        <sql splitStatements="false" stripComments="true">
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'attachment' AND column_name = 'status'
+                ) THEN
+                    -- Add column as nullable first so existing rows are not rejected
+                    ALTER TABLE attachment ADD COLUMN status VARCHAR(20);
+
+                    -- Back-fill all existing rows with the default lifecycle state
+                    UPDATE attachment SET status = 'UPLOADED' WHERE status IS NULL;
+
+                    -- Now enforce NOT NULL
+                    ALTER TABLE attachment ALTER COLUMN status SET NOT NULL;
+
+                    -- Set the column default for future inserts
+                    ALTER TABLE attachment ALTER COLUMN status SET DEFAULT 'UPLOADED';
+                END IF;
+            END $$;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

@@ -19,7 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/garage")
 @RequiredArgsConstructor
-@Hidden
+//@Hidden
 @Tag(name = "Digital Garage", description = "Manage the user's personal vehicle garage")
 public class GarageController {
 
