@@ -6,7 +6,7 @@ import com.county_cars.vroom.common.exception.UnauthorizedException;
 import com.county_cars.vroom.modules.attachment.config.AttachmentProperties;
 import com.county_cars.vroom.modules.attachment.dto.response.AttachmentResponse;
 import com.county_cars.vroom.modules.attachment.entity.Attachment;
-import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
+import com.county_cars.vroom.modules.attachment.entity.AttachmentStatus;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
 import com.county_cars.vroom.modules.attachment.entity.StorageProvider;
 import com.county_cars.vroom.modules.attachment.mapper.AttachmentMapper;
@@ -59,9 +59,9 @@ import java.util.UUID;
 public class AttachmentServiceImpl implements AttachmentService {
 
     private final AttachmentRepository attachmentRepository;
-    private final AttachmentMapper attachmentMapper;
-    private final FileStorageService fileStorageService;
-    private final CurrentUserService currentUserService;
+    private final AttachmentMapper     attachmentMapper;
+    private final FileStorageService   fileStorageService;
+    private final CurrentUserService   currentUserService;
     private final AttachmentProperties props;
 
     @Value("${attachment.storage.provider:local}")
@@ -74,11 +74,9 @@ public class AttachmentServiceImpl implements AttachmentService {
 
     @Override
     @Transactional
-    public AttachmentResponse upload(MultipartFile file,
-                                     AttachmentCategory category,
-                                     AttachmentVisibility visibility) {
+    public AttachmentResponse upload(MultipartFile file, AttachmentVisibility visibility) {
 
-        // ── 1. not-empty ──────────────────────────────────────────────────────────
+        // 1. Not-empty
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("File must not be empty.");
         }
@@ -87,42 +85,47 @@ public class AttachmentServiceImpl implements AttachmentService {
                 ? "unknown" : file.getOriginalFilename().trim();
         String extension = extractExtension(originalName);
 
-        // ── 2. extension whitelist ────────────────────────────────────────────────
+        // 2. Extension whitelist — fast-path rejection
         if (!props.getAllowedExtensions().contains(extension)) {
             throw new BadRequestException("File extension not allowed: ." + extension
                     + ". Allowed: " + props.getAllowedExtensions());
         }
 
-        // ── 3. file size limit ────────────────────────────────────────────────────
-        long maxBytes = props.getImageCategories().contains(category)
-                ? props.getMaxImageSizeBytes()
-                : props.getMaxDocumentSizeBytes();
-        if (file.getSize() > maxBytes) {
-            throw new BadRequestException("File size " + file.getSize()
-                    + " bytes exceeds the limit of " + maxBytes + " bytes for category " + category + ".");
+        // 3. Tika MIME detection — reads only the first few KB
+        String detectedMime = detectMime(file);
+
+        // 4. MIME whitelist
+        if (!props.getAllowedMimeTypes().contains(detectedMime)) {
+            throw new BadRequestException("File content type '" + detectedMime
+                    + "' is not allowed. Allowed types: " + props.getAllowedMimeTypes());
         }
 
-        // ── 4. magic-number via Apache Tika ───────────────────────────────────────
-        validateMimeType(file, extension);
+        // 5. Size limit — determined by MIME type
+        long maxBytes = resolveMaxSize(detectedMime);
+        if (file.getSize() > maxBytes) {
+            throw new BadRequestException("File size " + file.getSize()
+                    + " bytes exceeds the limit of " + maxBytes + " bytes.");
+        }
 
-        // ── 5. generate name, store, persist ─────────────────────────────────────
+        // 6. Store — folder is derived from MIME type, not category
+        String folder = resolveStorageFolder(detectedMime);
         String storedFileName = UUID.randomUUID() + "." + extension;
-        String storagePath    = fileStorageService.store(file, storedFileName, category.name());
+        String storagePath    = fileStorageService.store(file, storedFileName, folder);
 
         Attachment attachment = Attachment.builder()
                 .fileName(storedFileName)
                 .originalFileName(originalName)
-                .contentType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
+                .contentType(detectedMime)
                 .fileSize(file.getSize())
                 .storagePath(storagePath)
                 .storageProvider(resolveProvider())
                 .visibility(visibility)
-                .category(category)
+                .status(AttachmentStatus.UPLOADED)
                 .build();
 
         Attachment saved = attachmentRepository.save(attachment);
-        log.info("Attachment saved: id={} category={} visibility={} size={}",
-                saved.getId(), category, visibility, file.getSize());
+        log.info("Attachment saved: id={} mime={} visibility={} size={}",
+                saved.getId(), detectedMime, visibility, file.getSize());
 
         return attachmentMapper.toResponse(saved);
     }
@@ -138,7 +141,7 @@ public class AttachmentServiceImpl implements AttachmentService {
         return fileStorageService.load(attachment.getStoragePath());
     }
 
-    // ─── Delete ──────────────────────────────────────────────────────────────────
+    // ─── Delete (owner / admin) ───────────────────────────────────────────────────
 
     @Override
     @Transactional
@@ -153,21 +156,56 @@ public class AttachmentServiceImpl implements AttachmentService {
             throw new UnauthorizedException("You are not allowed to delete this attachment.");
         }
 
+        softDeleteAndRemoveFile(attachment, currentUserId);
+        log.info("Attachment deleted: id={} by={}", id, currentUserId);
+    }
+
+    // ─── Delete (system / cascade) ────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void deleteBySystem(Long id) {
+        attachmentRepository.findById(id).ifPresentOrElse(
+                attachment -> {
+                    softDeleteAndRemoveFile(attachment, "system");
+                    log.info("Attachment system-deleted: id={}", id);
+                },
+                () -> log.warn("deleteBySystem called on missing/already-deleted attachment id={}", id)
+        );
+    }
+
+    // ─── Mark as linked ───────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void markAsLinked(Long id, String ownerKeycloakId) {
+        Attachment attachment = findById(id);
+        if (!ownerKeycloakId.equals(attachment.getCreatedBy())) {
+            throw new UnauthorizedException("Attachment id=" + id + " does not belong to you.");
+        }
+        if (attachment.getStatus() == AttachmentStatus.LINKED) {
+            throw new BadRequestException("Attachment id=" + id + " is already linked.");
+        }
+        attachment.setStatus(AttachmentStatus.LINKED);
+        attachmentRepository.save(attachment);
+    }
+
+    // ─── Private helpers ─────────────────────────────────────────────────────────
+
+    private void softDeleteAndRemoveFile(Attachment attachment, String deletedBy) {
+        attachment.setStatus(AttachmentStatus.DELETED);
         attachment.setIsDeleted(Boolean.TRUE);
         attachment.setDeletedAt(LocalDateTime.now());
-        attachment.setDeletedBy(currentUserId);
+        attachment.setDeletedBy(deletedBy);
         attachmentRepository.save(attachment);
 
         try {
             fileStorageService.delete(attachment.getStoragePath());
         } catch (Exception e) {
-            log.warn("Physical file deletion failed for attachment id={}: {}", id, e.getMessage());
+            log.warn("Physical file deletion failed for attachment id={}: {}",
+                    attachment.getId(), e.getMessage());
         }
-
-        log.info("Attachment soft-deleted: id={} by={}", id, currentUserId);
     }
-
-    // ─── Private helpers ─────────────────────────────────────────────────────────
 
     private Attachment findById(Long id) {
         return attachmentRepository.findById(id)
@@ -176,25 +214,20 @@ public class AttachmentServiceImpl implements AttachmentService {
 
     private void enforceDownloadAccess(Attachment attachment) {
         AttachmentVisibility visibility = attachment.getVisibility();
-
-        if (visibility == AttachmentVisibility.PUBLIC) {
-            return;
-        }
+        if (visibility == AttachmentVisibility.PUBLIC) return;
 
         String currentUserId = currentUserService.getCurrentKeycloakUserId();
         boolean isAdmin = hasAdminRole();
 
         if (visibility == AttachmentVisibility.ADMIN_ONLY) {
-            if (!isAdmin) {
-                throw new UnauthorizedException("Access denied: this file is restricted to admins.");
-            }
+            if (!isAdmin) throw new UnauthorizedException("Access denied: admin only.");
             return;
         }
 
         if (visibility == AttachmentVisibility.PRIVATE) {
             boolean isOwner = currentUserId.equals(attachment.getCreatedBy());
             if (!isOwner && !isAdmin) {
-                throw new UnauthorizedException("Access denied: this is a private file.");
+                throw new UnauthorizedException("Access denied: private file.");
             }
         }
     }
@@ -207,43 +240,41 @@ public class AttachmentServiceImpl implements AttachmentService {
                 .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ADMIN"));
     }
 
-    private static String extractExtension(String filename) {
-        int dot = filename.lastIndexOf('.');
-        if (dot < 0 || dot == filename.length() - 1) {
-            throw new BadRequestException("File has no extension: " + filename);
-        }
-        return filename.substring(dot + 1).toLowerCase();
-    }
-
-    /**
-     * Uses Apache Tika to detect the actual MIME type from the file bytes
-     * (reads only the first few KB — Tika stops as soon as the signature matches).
-     * Rejects the file if the detected type is not on the configured whitelist.
-     *
-     * <p>This prevents content-type spoofing — e.g. a {@code .jpg} that is actually
-     * a disguised executable will have a non-image MIME signature and be rejected.</p>
-     */
-    private void validateMimeType(MultipartFile file, String extension) {
-        String detectedMime;
+    private String detectMime(MultipartFile file) {
         try {
-            detectedMime = tika.detect(file.getInputStream(), file.getOriginalFilename());
+            return tika.detect(file.getInputStream(), file.getOriginalFilename());
         } catch (IOException e) {
             throw new IllegalStateException("Could not read file bytes for MIME validation.", e);
         }
+    }
 
-        log.debug("Tika detected MIME type '{}' for file '{}' (extension={})",
-                detectedMime, file.getOriginalFilename(), extension);
+    private long resolveMaxSize(String mime) {
+        if (props.getImageMimeTypes().contains(mime)) return props.getMaxImageSizeBytes();
+        if (props.getVideoMimeTypes().contains(mime)) return props.getMaxVideoSizeBytes();
+        return props.getMaxDocumentSizeBytes();
+    }
 
-        if (!props.getAllowedMimeTypes().contains(detectedMime)) {
-            throw new BadRequestException(
-                    "File content type '" + detectedMime + "' is not allowed. "
-                    + "Allowed types: " + props.getAllowedMimeTypes());
-        }
+    /**
+     * Maps a detected MIME type to a storage sub-folder.
+     * The folder is used for file-system organisation only; it is not persisted.
+     */
+    private static String resolveStorageFolder(String mime) {
+        if (mime.startsWith("image/"))  return "images";
+        if (mime.startsWith("video/"))  return "videos";
+        return "documents";
     }
 
     private StorageProvider resolveProvider() {
         return "s3".equalsIgnoreCase(storageProviderKey)
                 ? StorageProvider.S3
                 : StorageProvider.LOCAL;
+    }
+
+    private static String extractExtension(String filename) {
+        int dot = filename.lastIndexOf('.');
+        if (dot < 0 || dot == filename.length() - 1) {
+            throw new BadRequestException("File has no extension: " + filename);
+        }
+        return filename.substring(dot + 1).toLowerCase();
     }
 }

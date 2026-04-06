@@ -1,6 +1,5 @@
 package com.county_cars.vroom.modules.attachment.config;
 
-import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -28,30 +27,45 @@ import java.util.List;
  * </pre>
  * </p>
  */
+
 @Getter
 @Setter
 @Component
 @ConfigurationProperties(prefix = "attachment")
 public class AttachmentProperties {
 
-    /** Maximum file size in bytes for image-type categories (default 10 MB). */
+    /** Maximum file size in bytes for image-type uploads (default 10 MB). */
     private long maxImageSizeBytes = 10_485_760L;
 
-    /** Maximum file size in bytes for document-type categories (default 25 MB). */
+    /** Maximum file size in bytes for video-type uploads (default 100 MB). */
+    private long maxVideoSizeBytes = 104_857_600L;
+
+    /** Maximum file size in bytes for document-type uploads (default 25 MB). */
     private long maxDocumentSizeBytes = 26_214_400L;
 
     /**
-     * Categories considered "image" for the purpose of size-limit selection.
-     * Anything not in this list uses the document size limit.
+     * MIME types considered "image" for size-limit selection.
+     * Anything matching image/* that is not here will still be caught by the
+     * allowedMimeTypes whitelist.
      */
-    private List<AttachmentCategory> imageCategories = List.of(
-            AttachmentCategory.PROFILE_PHOTO,
-            AttachmentCategory.VEHICLE_IMAGE
+    private List<String> imageMimeTypes = List.of(
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp"
+    );
+
+    /**
+     * MIME types considered "video" for size-limit selection.
+     */
+    private List<String> videoMimeTypes = List.of(
+            "video/mp4",
+            "video/quicktime",
+            "video/x-msvideo"
     );
 
     /**
      * Whitelist of allowed file extensions (lower-cased, no dot).
-     * Rejection is fast-path before the more expensive Tika MIME check.
      */
     private List<String> allowedExtensions = List.of(
             "jpg", "jpeg", "png", "gif", "webp",
@@ -63,7 +77,6 @@ public class AttachmentProperties {
 
     /**
      * Whitelist of MIME types that Tika is allowed to detect from the file bytes.
-     * If Tika resolves a type not on this list, the upload is rejected.
      */
     private List<String> allowedMimeTypes = List.of(
             "image/jpeg",
@@ -80,4 +93,3 @@ public class AttachmentProperties {
             "video/x-msvideo"
     );
 }
-

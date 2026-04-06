@@ -18,5 +18,8 @@ public interface GarageVehicleRepository extends JpaRepository<GarageVehicle, Lo
     boolean existsByUserIdAndVehicleId(Long userId, Long vehicleId);
 
     List<GarageVehicle> findAllByUserIdAndCategoryOrderByCreatedAtDesc(Long userId, GarageVehicleCategory category);
+
+    /** Used during vehicle cascade-delete to remove the entry from every user's garage. */
+    List<GarageVehicle> findAllByVehicleId(Long vehicleId);
 }
 

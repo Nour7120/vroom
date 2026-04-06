@@ -1,8 +1,10 @@
 package com.county_cars.vroom.modules.garage.entity;
 
+import com.county_cars.vroom.common.entity.BaseEntity;
 import com.county_cars.vroom.modules.attachment.entity.Attachment;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "vehicle_document")
@@ -11,7 +13,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class VehicleDocument {
+@SQLRestriction("is_deleted = false")
+public class VehicleDocument extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,4 +32,3 @@ public class VehicleDocument {
     @Column(name = "document_type", nullable = false, length = 30)
     private VehicleDocumentType documentType;
 }
-

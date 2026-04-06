@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Drops the `category` column from the attachment table.
+
+        Category is now an implicit concern of the junction table that links the
+        attachment to its domain object (vehicle_media, vehicle_document, etc.).
+        Keeping it on the attachment row required callers to know and set it on every
+        upload — moving the responsibility to the linking step is cleaner.
+
+        Idempotent: the column is only dropped when it exists.
+    -->
+    <changeSet id="015-alter-attachment-drop-category-column" author="nour">
+        <sql splitStatements="false" stripComments="true">
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'attachment' AND column_name = 'category'
+                ) THEN
+                    ALTER TABLE attachment DROP COLUMN category;
+                END IF;
+            END $$;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

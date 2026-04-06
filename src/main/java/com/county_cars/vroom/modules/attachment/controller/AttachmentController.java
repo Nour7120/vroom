@@ -2,7 +2,6 @@ package com.county_cars.vroom.modules.attachment.controller;
 
 import com.county_cars.vroom.common.exception.ApiErrorResponse;
 import com.county_cars.vroom.modules.attachment.dto.response.AttachmentResponse;
-import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
 import com.county_cars.vroom.modules.attachment.service.AttachmentService;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -66,15 +65,11 @@ public class AttachmentController {
             @Parameter(description = "File to upload", required = true)
             @RequestPart("file") MultipartFile file,
 
-            @Parameter(description = "Attachment category", required = true,
-                schema = @Schema(implementation = AttachmentCategory.class))
-            @RequestParam("category") AttachmentCategory category,
-
             @Parameter(description = "Visibility", required = true,
                 schema = @Schema(implementation = AttachmentVisibility.class))
             @RequestParam("visibility") AttachmentVisibility visibility) {
 
-        AttachmentResponse response = attachmentService.upload(file, category, visibility);
+        AttachmentResponse response = attachmentService.upload(file, visibility);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

@@ -1,6 +1,7 @@
 package com.county_cars.vroom.modules.garage.controller;
 
 import com.county_cars.vroom.modules.garage.dto.request.AddToGarageRequest;
+import com.county_cars.vroom.modules.garage.dto.request.AddVehicleWithDetailsRequest;
 import com.county_cars.vroom.modules.garage.dto.request.UpdateGarageCategoryRequest;
 import com.county_cars.vroom.modules.garage.dto.request.UpdateVehicleNotesRequest;
 import com.county_cars.vroom.modules.garage.dto.response.GarageVehicleResponse;
@@ -26,13 +27,22 @@ public class GarageController {
     private final GarageService garageService;
 
     @GetMapping
-    @Operation(summary = "List all vehicles in the current user's garage")
+    @Operation(summary = "List all vehicles in the current user's garage (includes thumbnail + mediaCount)")
     public ResponseEntity<List<GarageVehicleResponse>> listGarage() {
         return ResponseEntity.ok(garageService.listUserGarage());
     }
 
+    @PostMapping("/vehicles")
+    @Operation(summary = "Create a new vehicle and add it to the garage in one step")
+    public ResponseEntity<GarageVehicleResponse> createAndAdd(
+            @Valid @RequestBody AddVehicleWithDetailsRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(garageService.createVehicleAndAddToGarage(request));
+    }
+
+    @Hidden
     @PostMapping
-    @Operation(summary = "Add a vehicle to the current user's garage")
+    @Operation(summary = "[Deprecated] Add an existing vehicle to the garage by vehicleId — use POST /vehicles instead")
     public ResponseEntity<GarageVehicleResponse> addToGarage(
             @Valid @RequestBody AddToGarageRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)

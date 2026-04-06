@@ -1,6 +1,6 @@
 package com.county_cars.vroom.modules.attachment.dto.response;
 
-import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
+import com.county_cars.vroom.modules.attachment.entity.AttachmentStatus;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
 import com.county_cars.vroom.modules.attachment.entity.StorageProvider;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,17 +21,17 @@ public class AttachmentResponse {
     @Schema(description = "Original file name uploaded by user", example = "driving_license.pdf")
     private String originalFileName;
 
-    @Schema(description = "MIME content type", example = "application/pdf")
+    @Schema(description = "MIME content type", example = "image/jpeg")
     private String contentType;
 
     @Schema(description = "File size in bytes", example = "204800")
     private Long fileSize;
 
-    @Schema(description = "Category", example = "VERIFICATION_ID")
-    private AttachmentCategory category;
-
     @Schema(description = "Visibility", example = "PRIVATE")
     private AttachmentVisibility visibility;
+
+    @Schema(description = "Lifecycle status", example = "UPLOADED")
+    private AttachmentStatus status;
 
     @Schema(description = "Storage provider", example = "LOCAL")
     private StorageProvider storageProvider;

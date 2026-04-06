@@ -19,5 +19,15 @@ public interface VehicleService {
     VehicleResponse findVehicleByVin(String vin);
 
     List<VehicleResponse> listUserVehicles();
+
+    /**
+     * Soft-deletes the vehicle and cascades:
+     * – soft-deletes all VehicleMedia links
+     * – soft-deletes all VehicleDocument links
+     * – physically removes the underlying attachment files from storage
+     * – soft-deletes all GarageVehicle entries for this vehicle
+     * Only the current owner may call this.
+     */
+    void deleteVehicle(Long vehicleId);
 }
 

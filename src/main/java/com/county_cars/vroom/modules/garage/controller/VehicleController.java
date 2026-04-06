@@ -24,8 +24,9 @@ public class VehicleController {
 
     private final VehicleService vehicleService;
 
+    @Hidden
     @PostMapping
-    @Operation(summary = "Register a new vehicle")
+    @Operation(summary = "[Deprecated] Register a vehicle only — use POST /api/v1/garage/vehicles to create and add to garage in one step")
     public ResponseEntity<VehicleResponse> createVehicle(
             @Valid @RequestBody CreateVehicleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -63,6 +64,13 @@ public class VehicleController {
     @Operation(summary = "List all vehicles currently owned by the authenticated user")
     public ResponseEntity<List<VehicleResponse>> listMyVehicles() {
         return ResponseEntity.ok(vehicleService.listUserVehicles());
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Soft-delete a vehicle — cascades to media, documents and garage entries")
+    public void deleteVehicle(@PathVariable Long id) {
+        vehicleService.deleteVehicle(id);
     }
 }
 

@@ -60,5 +60,14 @@ public class GarageVehicleResponse {
 
     @Schema(description = "Tax expiry date")
     private LocalDate taxExpiryDate;
+
+    // ── Media summary (enriched by service) ──────────────────────────────────────
+
+    @Schema(description = "Attachment ID of the primary thumbnail (displayOrder=1). " +
+            "Null if no media has been linked yet. Fetch via GET /api/v1/attachments/{id}.")
+    private Long thumbnailAttachmentId;
+
+    @Schema(description = "Total number of media items (images + videos) linked to this vehicle")
+    private int mediaCount;
 }
 

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Adds all BaseEntity audit/soft-delete columns to vehicle_media and vehicle_document
+        so both tables can participate in the shared soft-delete lifecycle.
+
+        Idempotent: every column is only added when it does not already exist.
+        Existing rows receive sensible defaults before NOT NULL is enforced.
+    -->
+    <changeSet id="014-alter-vehicle-media-vehicle-document-add-base-entity-columns" author="nour">
+        <sql splitStatements="false" stripComments="true">
+            DO $$
+            BEGIN
+
+                -- ── vehicle_media ──────────────────────────────────────────────────────
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'created_at') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN created_at TIMESTAMP;
+                    UPDATE vehicle_media SET created_at = NOW() WHERE created_at IS NULL;
+                    ALTER TABLE vehicle_media ALTER COLUMN created_at SET NOT NULL;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'updated_at') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN updated_at TIMESTAMP;
+                    UPDATE vehicle_media SET updated_at = NOW() WHERE updated_at IS NULL;
+                    ALTER TABLE vehicle_media ALTER COLUMN updated_at SET NOT NULL;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'deleted_at') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN deleted_at TIMESTAMP;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'created_by') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN created_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'updated_by') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN updated_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'deleted_by') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN deleted_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_media' AND column_name = 'is_deleted') THEN
+                    ALTER TABLE vehicle_media ADD COLUMN is_deleted BOOLEAN;
+                    UPDATE vehicle_media SET is_deleted = FALSE WHERE is_deleted IS NULL;
+                    ALTER TABLE vehicle_media ALTER COLUMN is_deleted SET NOT NULL;
+                    ALTER TABLE vehicle_media ALTER COLUMN is_deleted SET DEFAULT FALSE;
+                END IF;
+
+                -- ── vehicle_document ───────────────────────────────────────────────────
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'created_at') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN created_at TIMESTAMP;
+                    UPDATE vehicle_document SET created_at = NOW() WHERE created_at IS NULL;
+                    ALTER TABLE vehicle_document ALTER COLUMN created_at SET NOT NULL;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'updated_at') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN updated_at TIMESTAMP;
+                    UPDATE vehicle_document SET updated_at = NOW() WHERE updated_at IS NULL;
+                    ALTER TABLE vehicle_document ALTER COLUMN updated_at SET NOT NULL;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'deleted_at') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN deleted_at TIMESTAMP;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'created_by') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN created_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'updated_by') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN updated_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'deleted_by') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN deleted_by VARCHAR(36);
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'vehicle_document' AND column_name = 'is_deleted') THEN
+                    ALTER TABLE vehicle_document ADD COLUMN is_deleted BOOLEAN;
+                    UPDATE vehicle_document SET is_deleted = FALSE WHERE is_deleted IS NULL;
+                    ALTER TABLE vehicle_document ALTER COLUMN is_deleted SET NOT NULL;
+                    ALTER TABLE vehicle_document ALTER COLUMN is_deleted SET DEFAULT FALSE;
+                END IF;
+
+            END $$;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

@@ -9,9 +9,13 @@ import com.county_cars.vroom.modules.garage.dto.response.VehicleResponse;
 import com.county_cars.vroom.modules.garage.entity.Vehicle;
 import com.county_cars.vroom.modules.garage.entity.VehicleOwnership;
 import com.county_cars.vroom.modules.garage.mapper.VehicleMapper;
+import com.county_cars.vroom.modules.garage.repository.GarageVehicleRepository;
+import com.county_cars.vroom.modules.garage.repository.VehicleDocumentRepository;
+import com.county_cars.vroom.modules.garage.repository.VehicleMediaRepository;
 import com.county_cars.vroom.modules.garage.repository.VehicleOwnershipRepository;
 import com.county_cars.vroom.modules.garage.repository.VehicleRepository;
 import com.county_cars.vroom.modules.garage.service.VehicleService;
+import com.county_cars.vroom.modules.attachment.service.AttachmentService;
 import com.county_cars.vroom.modules.keycloak.CurrentUserService;
 import com.county_cars.vroom.modules.user_profile.entity.UserProfile;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Slf4j
@@ -31,6 +36,10 @@ public class VehicleServiceImpl implements VehicleService {
 
     private final VehicleRepository          vehicleRepository;
     private final VehicleOwnershipRepository ownershipRepository;
+    private final VehicleMediaRepository     vehicleMediaRepository;
+    private final VehicleDocumentRepository  vehicleDocumentRepository;
+    private final GarageVehicleRepository    garageVehicleRepository;
+    private final AttachmentService          attachmentService;
     private final VehicleMapper              vehicleMapper;
     private final CurrentUserService         currentUserService;
 
@@ -135,6 +144,55 @@ public class VehicleServiceImpl implements VehicleService {
                 .toList();
 
         return vehicleMapper.toResponseList(vehicles);
+    }
+
+    // ── Delete (cascade) ───────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void deleteVehicle(Long vehicleId) {
+        String keycloakId = currentUserService.getCurrentKeycloakUserId();
+
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new NotFoundException("Vehicle not found: " + vehicleId));
+
+        if (!vehicle.getOwnerKeycloakId().equals(keycloakId)) {
+            throw new UnauthorizedException("You do not own this vehicle.");
+        }
+
+        // 1. Cascade-delete all media (soft-delete link + physical file removal)
+        vehicleMediaRepository.findAllByVehicleId(vehicleId).forEach(media -> {
+            media.setIsDeleted(Boolean.TRUE);
+            media.setDeletedAt(LocalDateTime.now());
+            media.setDeletedBy(keycloakId);
+            vehicleMediaRepository.save(media);
+            attachmentService.deleteBySystem(media.getAttachment().getId());
+        });
+
+        // 2. Cascade-delete all documents (soft-delete link + physical file removal)
+        vehicleDocumentRepository.findAllByVehicleId(vehicleId).forEach(doc -> {
+            doc.setIsDeleted(Boolean.TRUE);
+            doc.setDeletedAt(LocalDateTime.now());
+            doc.setDeletedBy(keycloakId);
+            vehicleDocumentRepository.save(doc);
+            attachmentService.deleteBySystem(doc.getAttachment().getId());
+        });
+
+        // 3. Soft-delete garage entries across ALL users who have this vehicle
+        garageVehicleRepository.findAllByVehicleId(vehicleId).forEach(entry -> {
+            entry.setIsDeleted(Boolean.TRUE);
+            entry.setDeletedAt(LocalDateTime.now());
+            entry.setDeletedBy(keycloakId);
+            garageVehicleRepository.save(entry);
+        });
+
+        // 4. Soft-delete the vehicle itself
+        vehicle.setIsDeleted(Boolean.TRUE);
+        vehicle.setDeletedAt(LocalDateTime.now());
+        vehicle.setDeletedBy(keycloakId);
+        vehicleRepository.save(vehicle);
+
+        log.info("Vehicle {} soft-deleted with cascade by user {}", vehicleId, keycloakId);
     }
 }
 
