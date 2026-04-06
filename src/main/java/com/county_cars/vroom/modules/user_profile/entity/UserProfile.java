@@ -36,6 +36,16 @@ public class UserProfile extends BaseEntity {
     @Column(name = "avatar_url", length = 1024)
     private String avatarUrl;
 
+    /**
+     * ID of the {@link com.county_cars.vroom.modules.attachment.entity.Attachment} record
+     * backing the current profile photo.  Nullable — users without a photo have no attachment.
+     * Used to delete the old file when the avatar is replaced.
+     * Stored as a plain column (no FK constraint) so soft-deleted attachments don't
+     * violate referential integrity.
+     */
+    @Column(name = "avatar_attachment_id")
+    private Long avatarAttachmentId;
+
     @Column(name = "status", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
     private UserStatus status;

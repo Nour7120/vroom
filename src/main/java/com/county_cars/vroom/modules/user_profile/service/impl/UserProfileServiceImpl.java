@@ -2,6 +2,11 @@ package com.county_cars.vroom.modules.user_profile.service.impl;
 
 import com.county_cars.vroom.common.exception.ConflictException;
 import com.county_cars.vroom.common.exception.NotFoundException;
+import com.county_cars.vroom.modules.attachment.dto.response.AttachmentResponse;
+import com.county_cars.vroom.modules.attachment.entity.Attachment;
+import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
+import com.county_cars.vroom.modules.attachment.repository.AttachmentRepository;
+import com.county_cars.vroom.modules.attachment.service.AttachmentService;
 import com.county_cars.vroom.modules.keycloak.CurrentUserService;
 import com.county_cars.vroom.modules.user_profile.dto.request.CreateUserProfileRequest;
 import com.county_cars.vroom.modules.user_profile.dto.request.UpdateUserProfileRequest;
@@ -20,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,6 +40,8 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserLocationRepository userLocationRepository;
     private final UserProfileMapper userProfileMapper;
     private final CurrentUserService currentUserService;
+    private final AttachmentService attachmentService;
+    private final AttachmentRepository attachmentRepository;
 
     // ─── UserProfile CRUD ────────────────────────────────────────────────────
 
@@ -84,6 +92,65 @@ public class UserProfileServiceImpl implements UserProfileService {
         userProfileRepository.save(entity);
     }
 
+    // ─── Avatar upload (calling-module orchestration) ─────────────────────────
+
+    /**
+     * Uploads an image, links it to the profile and (on success) deletes the old avatar.
+     *
+     * <p>Orchestration flow:
+     * <ol>
+     *   <li>{@code attachmentService.upload} — REQUIRES_NEW, commits immediately.</li>
+     *   <li>Fetch the saved {@link Attachment} entity in the outer transaction.</li>
+     *   <li>Update {@link UserProfile#setAvatarAttachmentId} and
+     *       {@link UserProfile#setAvatarUrl} in the outer transaction.</li>
+     *   <li>{@code markAsLinked} — participates in the outer transaction.</li>
+     *   <li>On any failure: {@code deleteOrphan} — REQUIRES_NEW, commits cleanup.</li>
+     *   <li>After successful commit: soft-delete the old avatar attachment.</li>
+     * </ol>
+     * </p>
+     */
+    @Override
+    @Transactional
+    public UserProfileResponse uploadAvatar(MultipartFile file) {
+        UserProfile profile   = currentUserService.getCurrentUserProfile();
+        Long oldAttachmentId  = profile.getAvatarAttachmentId();
+
+        // ── Step 1: Upload (REQUIRES_NEW — commits independently) ──────────────
+        AttachmentResponse attResp = attachmentService.upload(file, AttachmentVisibility.PUBLIC);
+
+        try {
+            // ── Step 2: Fetch entity in the outer transaction ───────────────────
+            Attachment attachment = attachmentRepository.findById(attResp.getId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Attachment not found after upload: " + attResp.getId()));
+
+            // ── Step 3: Update profile ──────────────────────────────────────────
+            profile.setAvatarAttachmentId(attachment.getId());
+            profile.setAvatarUrl("/api/v1/attachments/" + attachment.getId());
+            userProfileRepository.save(profile);
+
+            // ── Step 4: Mark as LINKED (participates in outer tx) ───────────────
+            attachmentService.markAsLinked(attachment.getId());
+
+            log.info("Avatar updated: profileId={} attachmentId={}", profile.getId(), attachment.getId());
+
+        } catch (Exception e) {
+            // ── Step 5: Cleanup on failure (REQUIRES_NEW — commits independently) ─
+            attachmentService.deleteOrphan(attResp.getId());
+            log.warn("Avatar upload failed; orphan attachment cleaned up: id={}", attResp.getId());
+            throw e;
+        }
+
+        // ── Step 6: Delete the old avatar after the new one is safely committed ─
+        if (oldAttachmentId != null) {
+            attachmentService.deleteBySystem(oldAttachmentId);
+            log.info("Old avatar attachment deleted: id={}", oldAttachmentId);
+        }
+
+        return userProfileMapper.toResponse(userProfileRepository.findById(profile.getId())
+                .orElseThrow(() -> new NotFoundException("UserProfile not found: " + profile.getId())));
+    }
+
     // ─── UserLocation CRUD ───────────────────────────────────────────────────
 
     @Override
@@ -100,7 +167,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Override
     public List<UserLocationResponse> getLocations(Long userProfileId) {
-        findById(userProfileId); // validate existence
+        findById(userProfileId);
         return userLocationRepository.findAllByUserProfileIdAndIsDeletedFalse(userProfileId)
                 .stream().map(userProfileMapper::toLocationResponse).toList();
     }

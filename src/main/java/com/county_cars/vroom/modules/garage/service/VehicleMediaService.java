@@ -1,15 +1,22 @@
 package com.county_cars.vroom.modules.garage.service;
 
-import com.county_cars.vroom.modules.garage.dto.request.LinkVehicleMediaRequest;
 import com.county_cars.vroom.modules.garage.dto.request.UpdateMediaDisplayOrderRequest;
 import com.county_cars.vroom.modules.garage.dto.response.VehicleMediaResponse;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 public interface VehicleMediaService {
 
-    /** Link an uploaded attachment to a vehicle as a media item. */
-    VehicleMediaResponse linkMedia(Long vehicleId, LinkVehicleMediaRequest request);
+    /**
+     * Uploads a media file and links it to the vehicle in a single coordinated operation.
+     * The file must be an image or video.
+     *
+     * @param vehicleId    target vehicle (must be owned by the current user)
+     * @param file         the image / video file to upload
+     * @param displayOrder optional 1-based display position; appended at the end when {@code null}
+     */
+    VehicleMediaResponse linkMedia(Long vehicleId, MultipartFile file, Integer displayOrder);
 
     /** Update the display order of a specific media item (swap if collision). */
     VehicleMediaResponse updateDisplayOrder(Long vehicleId, Long mediaId, UpdateMediaDisplayOrderRequest request);
@@ -20,4 +27,3 @@ public interface VehicleMediaService {
     /** List all media for a vehicle ordered by displayOrder ASC. */
     List<VehicleMediaResponse> listMedia(Long vehicleId);
 }
-

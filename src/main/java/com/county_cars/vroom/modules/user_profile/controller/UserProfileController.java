@@ -15,9 +15,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -63,6 +66,24 @@ public class UserProfileController {
     public ResponseEntity<UserProfileResponse> update(@PathVariable Long id,
                                                       @Valid @RequestBody UpdateUserProfileRequest request) {
         return ResponseEntity.ok(userProfileService.updateUserProfile(id, request));
+    }
+
+    @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(
+        summary = "Upload / replace profile avatar",
+        description = """
+            Uploads an image and sets it as the authenticated user's profile photo.
+
+            - Allowed types: jpg, jpeg, png, gif, webp (max 10 MB)
+            - If the user already has a profile photo the old file is deleted on success.
+            - The updated profile is returned with the new `avatarUrl`.
+
+            **Requires a valid Bearer JWT.**
+            """
+    )
+    public ResponseEntity<UserProfileResponse> uploadAvatar(
+            @RequestPart("file") MultipartFile file) {
+        return ResponseEntity.ok(userProfileService.uploadAvatar(file));
     }
 
     @DeleteMapping("/{id}")

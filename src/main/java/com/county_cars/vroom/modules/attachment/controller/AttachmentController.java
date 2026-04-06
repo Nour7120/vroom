@@ -38,18 +38,17 @@ public class AttachmentController {
 
     // ─── POST /api/v1/attachments ─────────────────────────────────────────────────
 
+    @Deprecated
     @Operation(
-        summary = "Upload a file",
+        summary = "Upload a file (Deprecated — use module-specific endpoints)",
+        deprecated = true,
         description = """
-            Uploads a file attachment and persists its metadata.
+            **Deprecated.** Use the module-specific single-step upload endpoints instead:
+            - `POST /api/v1/vehicles/{vehicleId}/media`     — vehicle photos / videos
+            - `POST /api/v1/vehicles/{vehicleId}/documents` — vehicle documents (MOT, insurance…)
+            - `POST /api/v1/user-profiles/me/avatar`        — user profile photo
 
-            **Validation applied:**
-            - Extension whitelist (jpg, jpeg, png, gif, webp, pdf, doc, docx, xls, xlsx, mp4, mov, avi)
-            - Max 10 MB for image categories (PROFILE_PHOTO, VEHICLE_IMAGE)
-            - Max 25 MB for document categories
-            - Magic-number (file signature) check for jpg, png, pdf, gif
-
-            **Requires a valid Bearer JWT.**
+            Those endpoints upload **and** link the file atomically with proper cleanup on failure.
             """
     )
     @ApiResponses({

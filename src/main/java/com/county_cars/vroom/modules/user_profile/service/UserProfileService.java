@@ -7,6 +7,7 @@ import com.county_cars.vroom.modules.user_profile.dto.response.UserLocationRespo
 import com.county_cars.vroom.modules.user_profile.dto.response.UserProfileResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -17,6 +18,13 @@ public interface UserProfileService {
     Page<UserProfileResponse> getAllUserProfiles(Pageable pageable);
     UserProfileResponse updateUserProfile(Long id, UpdateUserProfileRequest request);
     void deleteUserProfile(Long id);
+
+    /**
+     * Uploads an image file and sets it as the authenticated user's profile avatar.
+     * If the user already has an avatar the old attachment is deleted after the new
+     * one is successfully linked.
+     */
+    UserProfileResponse uploadAvatar(MultipartFile file);
 
     UserLocationResponse addLocation(Long userProfileId, UserLocationRequest request);
     List<UserLocationResponse> getLocations(Long userProfileId);

@@ -4,7 +4,6 @@ import com.county_cars.vroom.common.exception.BadRequestException;
 import com.county_cars.vroom.common.exception.NotFoundException;
 import com.county_cars.vroom.common.exception.UnauthorizedException;
 import com.county_cars.vroom.modules.attachment.entity.Attachment;
-import com.county_cars.vroom.modules.attachment.entity.AttachmentCategory;
 import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
 import com.county_cars.vroom.modules.attachment.repository.AttachmentRepository;
 import com.county_cars.vroom.modules.garage.entity.Vehicle;
@@ -227,13 +226,14 @@ public class ListingServiceImpl implements ListingService {
     }
 
     /**
-     * Validates that an attachment is a PUBLIC VEHICLE_IMAGE.
+     * Validates that an attachment is a PUBLIC image.
+     * Category is inferred from the MIME type (no category field on Attachment).
      */
     private void validateVehicleImage(Attachment attachment) {
-        if (attachment.getCategory() != AttachmentCategory.VEHICLE_IMAGE) {
+        if (!attachment.getContentType().startsWith("image/")) {
             throw new BadRequestException(
-                    "Attachment " + attachment.getId() + " must have category VEHICLE_IMAGE, "
-                    + "but was: " + attachment.getCategory());
+                    "Attachment " + attachment.getId() + " must be an image, "
+                    + "but detected MIME type was: " + attachment.getContentType());
         }
         if (attachment.getVisibility() != AttachmentVisibility.PUBLIC) {
             throw new BadRequestException(

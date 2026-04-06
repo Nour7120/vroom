@@ -23,6 +23,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,25 +34,38 @@ import java.util.UUID;
 /**
  * Core attachment service: validates, stores, retrieves and soft-deletes file attachments.
  *
- * <h3>Validation chain (upload)</h3>
- * <ol>
- *   <li>Not-empty check</li>
- *   <li>Extension whitelist — fast-path rejection from {@link AttachmentProperties#getAllowedExtensions()}</li>
- *   <li>File-size limit — image vs document threshold from {@link AttachmentProperties}</li>
- *   <li>Magic-number check — Apache Tika detects actual MIME type from file bytes;
- *       result is compared against {@link AttachmentProperties#getAllowedMimeTypes()}</li>
- * </ol>
+ * <h3>Transaction design</h3>
+ * <ul>
+ *   <li>{@link #upload} — {@code REQUIRES_NEW}: commits the attachment record (and the
+ *       physical file) immediately so any subsequent rollback in the calling transaction
+ *       does not silently strand a file on disk with no DB record.</li>
+ *   <li>{@link #markAsLinked} — {@code REQUIRED}: participates in the calling
+ *       transaction so linking the junction record and updating the status are atomic.</li>
+ *   <li>{@link #deleteOrphan} — {@code REQUIRES_NEW}: committed independently so the
+ *       cleanup succeeds even when the calling transaction is rolling back.</li>
+ *   <li>{@link #deleteBySystem} — {@code REQUIRED}: cascade deletes participate in the
+ *       outer transaction (e.g. deleting a vehicle deletes its attachments atomically).</li>
+ * </ul>
+ *
+ * <h3>Calling-module orchestration pattern</h3>
+ * <pre>
+ *   AttachmentResponse att = attachmentService.upload(file, visibility); // REQUIRES_NEW
+ *   try {
+ *       Attachment entity = attachmentRepository.findById(att.getId()).orElseThrow();
+ *       // ... create junction record ...
+ *       attachmentService.markAsLinked(att.getId());         // REQUIRED — same tx
+ *   } catch (Exception e) {
+ *       attachmentService.deleteOrphan(att.getId());         // REQUIRES_NEW — own tx
+ *       throw e;
+ *   }
+ * </pre>
  *
  * <h3>Visibility enforcement (download)</h3>
  * <ul>
  *   <li>PUBLIC     — any authenticated user</li>
- *   <li>PRIVATE    — owner ({@code createdBy == currentUserId}) or ADMIN</li>
+ *   <li>PRIVATE    — owner or ADMIN</li>
  *   <li>ADMIN_ONLY — ADMIN role only</li>
  * </ul>
- *
- * <p>All configurable values (size limits, extension whitelist, MIME whitelist,
- * image categories) live in {@link AttachmentProperties} and are externalized
- * via {@code application.properties}.</p>
  */
 @Slf4j
 @Service
@@ -70,10 +84,11 @@ public class AttachmentServiceImpl implements AttachmentService {
     /** Tika instance is thread-safe and cheap to reuse. */
     private final Tika tika = new Tika();
 
-    // ─── Upload ──────────────────────────────────────────────────────────────────
+    // ─── Upload (REQUIRES_NEW — commits independently) ────────────────────────────
 
     @Override
-    @Transactional
+    @Deprecated
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AttachmentResponse upload(MultipartFile file, AttachmentVisibility visibility) {
 
         // 1. Not-empty
@@ -107,8 +122,8 @@ public class AttachmentServiceImpl implements AttachmentService {
                     + " bytes exceeds the limit of " + maxBytes + " bytes.");
         }
 
-        // 6. Store — folder is derived from MIME type, not category
-        String folder = resolveStorageFolder(detectedMime);
+        // 6. Store — folder is derived from MIME type
+        String folder         = resolveStorageFolder(detectedMime);
         String storedFileName = UUID.randomUUID() + "." + extension;
         String storagePath    = fileStorageService.store(file, storedFileName, folder);
 
@@ -124,10 +139,39 @@ public class AttachmentServiceImpl implements AttachmentService {
                 .build();
 
         Attachment saved = attachmentRepository.save(attachment);
-        log.info("Attachment saved: id={} mime={} visibility={} size={}",
+        log.info("Attachment uploaded: id={} mime={} visibility={} size={}",
                 saved.getId(), detectedMime, visibility, file.getSize());
 
         return attachmentMapper.toResponse(saved);
+    }
+
+    // ─── Mark as linked (REQUIRED — participates in calling tx) ──────────────────
+
+    @Override
+    @Transactional
+    public void markAsLinked(Long id) {
+        Attachment attachment = findById(id);
+        if (attachment.getStatus() == AttachmentStatus.LINKED) {
+            log.debug("markAsLinked called on already-LINKED attachment id={}; skipping.", id);
+            return;
+        }
+        attachment.setStatus(AttachmentStatus.LINKED);
+        attachmentRepository.save(attachment);
+        log.info("Attachment marked LINKED: id={}", id);
+    }
+
+    // ─── Delete orphan (REQUIRES_NEW — independent cleanup tx) ───────────────────
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void deleteOrphan(Long id) {
+        attachmentRepository.findById(id).ifPresentOrElse(
+                attachment -> {
+                    softDeleteAndRemoveFile(attachment, "orphan-cleanup");
+                    log.info("Orphan attachment cleaned up: id={}", id);
+                },
+                () -> log.warn("deleteOrphan called on missing/already-deleted attachment id={}", id)
+        );
     }
 
     // ─── Download ────────────────────────────────────────────────────────────────
@@ -160,7 +204,7 @@ public class AttachmentServiceImpl implements AttachmentService {
         log.info("Attachment deleted: id={} by={}", id, currentUserId);
     }
 
-    // ─── Delete (system / cascade) ────────────────────────────────────────────────
+    // ─── Delete (system / cascade, REQUIRED) ─────────────────────────────────────
 
     @Override
     @Transactional
@@ -172,22 +216,6 @@ public class AttachmentServiceImpl implements AttachmentService {
                 },
                 () -> log.warn("deleteBySystem called on missing/already-deleted attachment id={}", id)
         );
-    }
-
-    // ─── Mark as linked ───────────────────────────────────────────────────────────
-
-    @Override
-    @Transactional
-    public void markAsLinked(Long id, String ownerKeycloakId) {
-        Attachment attachment = findById(id);
-        if (!ownerKeycloakId.equals(attachment.getCreatedBy())) {
-            throw new UnauthorizedException("Attachment id=" + id + " does not belong to you.");
-        }
-        if (attachment.getStatus() == AttachmentStatus.LINKED) {
-            throw new BadRequestException("Attachment id=" + id + " is already linked.");
-        }
-        attachment.setStatus(AttachmentStatus.LINKED);
-        attachmentRepository.save(attachment);
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────────
@@ -254,13 +282,9 @@ public class AttachmentServiceImpl implements AttachmentService {
         return props.getMaxDocumentSizeBytes();
     }
 
-    /**
-     * Maps a detected MIME type to a storage sub-folder.
-     * The folder is used for file-system organisation only; it is not persisted.
-     */
     private static String resolveStorageFolder(String mime) {
-        if (mime.startsWith("image/"))  return "images";
-        if (mime.startsWith("video/"))  return "videos";
+        if (mime.startsWith("image/")) return "images";
+        if (mime.startsWith("video/")) return "videos";
         return "documents";
     }
 

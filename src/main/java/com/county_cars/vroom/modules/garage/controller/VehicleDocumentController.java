@@ -1,57 +1,70 @@
 package com.county_cars.vroom.modules.garage.controller;
 
-import com.county_cars.vroom.modules.garage.dto.request.LinkVehicleDocumentRequest;
 import com.county_cars.vroom.modules.garage.dto.response.VehicleDocumentResponse;
+import com.county_cars.vroom.modules.garage.entity.VehicleDocumentType;
 import com.county_cars.vroom.modules.garage.service.VehicleDocumentService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 /**
- * Manages documents (MOT, insurance, service records, etc.) linked to a vehicle.
+ * Manages documents (MOT, insurance, registration…) linked to a vehicle.
  *
- * <p>Upload flow:
- * <ol>
- *   <li>Upload the file: {@code POST /api/v1/attachments} → get {@code attachmentId}</li>
- *   <li>Link it here:    {@code POST /api/v1/vehicles/{vehicleId}/documents}</li>
- * </ol>
- *
- * <p>Only 1 document per {@code VehicleDocumentType} is allowed per vehicle.</p>
+ * <p>Single-step upload flow:
+ * POST /api/v1/vehicles/{vehicleId}/documents  (multipart/form-data)
+ * </p>
  */
 @RestController
 @RequestMapping("/api/v1/vehicles/{vehicleId}/documents")
 @RequiredArgsConstructor
-@Tag(name = "Vehicle Documents", description = "Link and remove documents for a vehicle (MOT, insurance, etc.)")
+@Tag(name = "Vehicle Documents", description = "Upload and manage documents for a vehicle")
 public class VehicleDocumentController {
 
     private final VehicleDocumentService vehicleDocumentService;
 
-    @PostMapping
-    @Operation(summary = "Link an uploaded attachment to a vehicle as a document")
-    public ResponseEntity<VehicleDocumentResponse> linkDocument(
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(
+        summary = "Upload and link a document to a vehicle",
+        description = """
+            Uploads a document file and immediately links it to the vehicle.
+            Upload, validation and linking happen in a single coordinated operation.
+            If linking fails the uploaded file is cleaned up automatically.
+
+            - Allowed types: pdf, doc, docx, jpg, jpeg, png (max 25 MB)
+            - `documentType` must be one of: MOT, INSURANCE, REGISTRATION, SERVICE_HISTORY, OTHER
+
+            **Requires a valid Bearer JWT and vehicle ownership.**
+            """
+    )
+    public ResponseEntity<VehicleDocumentResponse> uploadDocument(
             @PathVariable Long vehicleId,
-            @Valid @RequestBody LinkVehicleDocumentRequest request) {
+            @Parameter(description = "Document file", required = true)
+            @RequestPart("file") MultipartFile file,
+            @Parameter(description = "Semantic document type", required = true)
+            @RequestParam("documentType") VehicleDocumentType documentType) {
+
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(vehicleDocumentService.linkDocument(vehicleId, request));
+                .body(vehicleDocumentService.linkDocument(vehicleId, file, documentType));
     }
 
     @GetMapping
-    @Operation(summary = "List all documents linked to a vehicle")
+    @Operation(summary = "List all documents for a vehicle")
     public ResponseEntity<List<VehicleDocumentResponse>> listDocuments(@PathVariable Long vehicleId) {
         return ResponseEntity.ok(vehicleDocumentService.listDocuments(vehicleId));
     }
 
     @DeleteMapping("/{documentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Remove a document — soft-deletes the link and physically removes the file")
+    @Operation(summary = "Remove a document — soft-deletes the link and deletes the file")
     public void deleteDocument(@PathVariable Long vehicleId, @PathVariable Long documentId) {
         vehicleDocumentService.deleteDocument(vehicleId, documentId);
     }
 }
-
