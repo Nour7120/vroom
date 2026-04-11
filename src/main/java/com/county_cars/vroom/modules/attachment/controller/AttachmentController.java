@@ -30,7 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/v1/attachments")
 @RequiredArgsConstructor
-@Hidden
+//@Hidden
 @Tag(name = "Attachments", description = "Upload, download and delete file attachments")
 public class AttachmentController {
 

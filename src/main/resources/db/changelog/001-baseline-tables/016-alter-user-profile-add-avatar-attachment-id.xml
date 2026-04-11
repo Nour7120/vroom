@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Adds the `avatar_attachment_id` column to user_profile.
+
+        Stores the ID of the Attachment record backing the user's current profile photo.
+        Nullable — users without a photo have no attachment.
+
+        No foreign key constraint is added intentionally: soft-deleted attachment rows
+        must not cause a referential-integrity violation when the avatar is later replaced
+        or cleaned up by the orphan-cleanup scheduler.
+
+        Idempotent: the column is only added when it does not already exist.
+    -->
+    <changeSet id="016-alter-user-profile-add-avatar-attachment-id" author="nour">
+        <sql splitStatements="false" stripComments="true">
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'user_profile' AND column_name = 'avatar_attachment_id'
+                ) THEN
+                    ALTER TABLE user_profile
+                        ADD COLUMN avatar_attachment_id BIGINT;
+
+                    COMMENT ON COLUMN user_profile.avatar_attachment_id
+                        IS 'FK-less reference to attachment.id for the current profile photo. '
+                           'Nullable; no FK constraint so soft-deleted attachments do not violate integrity.';
+                END IF;
+            END $$;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+

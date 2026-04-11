@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/vehicles")
 @RequiredArgsConstructor
-@Hidden
+//@Hidden
 @Tag(name = "Vehicle Passport", description = "Retrieve aggregated vehicle passport data")
 public class VehiclePassportController {
 

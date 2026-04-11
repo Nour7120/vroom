@@ -1,6 +1,6 @@
 # VROOM — Backend API
 
-> **Spring Boot 3.5 · Java 21 · PostgreSQL · Keycloak · WebSockets**
+> **Spring Boot 3.5.11 · Java 21 · PostgreSQL · Keycloak · WebSockets**
 
 VROOM is a full-featured vehicle marketplace and garage management platform.  
 This document covers every feature the backend exposes, all REST + WebSocket endpoints, and the end-to-end flows for each module.
@@ -18,18 +18,20 @@ This document covers every feature the backend exposes, all REST + WebSocket end
 7. [User Profiles & Locations](#7-user-profiles--locations)
 8. [Authorization — Groups & Permissions](#8-authorization--groups--permissions)
 9. [Vehicles](#9-vehicles)
-10. [Digital Garage](#10-digital-garage)
-11. [Vehicle Passport](#11-vehicle-passport)
-12. [Marketplace (Listings)](#12-marketplace-listings)
-13. [Real-Time Chat](#13-real-time-chat)
-14. [Verifications](#14-verifications)
-15. [Attachments](#15-attachments)
-16. [Keycloak Integration & Webhooks](#16-keycloak-integration--webhooks)
-17. [Audit Logging](#17-audit-logging)
-18. [Monitoring & Observability](#18-monitoring--observability)
-19. [Security Model](#19-security-model)
-20. [Configuration Reference](#20-configuration-reference)
-21. [Running Locally](#21-running-locally)
+10. [Vehicle Media](#10-vehicle-media)
+11. [Vehicle Documents](#11-vehicle-documents)
+12. [Digital Garage](#12-digital-garage)
+13. [Vehicle Passport](#13-vehicle-passport)
+14. [Marketplace (Listings)](#14-marketplace-listings)
+15. [Real-Time Chat](#15-real-time-chat)
+16. [Verifications](#16-verifications)
+17. [Attachments](#17-attachments)
+18. [Keycloak Integration & Webhooks](#18-keycloak-integration--webhooks)
+19. [Audit Logging](#19-audit-logging)
+20. [Monitoring & Observability](#20-monitoring--observability)
+21. [Security Model](#21-security-model)
+22. [Configuration Reference](#22-configuration-reference)
+23. [Running Locally](#23-running-locally)
 
 ---
 
@@ -38,18 +40,18 @@ This document covers every feature the backend exposes, all REST + WebSocket end
 | Layer | Technology |
 |---|---|
 | Language | Java 21 |
-| Framework | Spring Boot 3.5 |
+| Framework | Spring Boot 3.5.11 |
 | Database | PostgreSQL 15 |
 | Migrations | Liquibase |
-| IAM | Keycloak 26 |
+| IAM | Keycloak 26 (Admin Client 26.0.7) |
 | Security | Spring Security OAuth2 Resource Server (JWT) |
 | Real-time | Spring WebSocket (raw WS, not STOMP) |
 | ORM | Spring Data JPA / Hibernate |
-| Mapping | MapStruct |
-| API Docs | SpringDoc OpenAPI 3 (Swagger UI) |
+| Mapping | MapStruct 1.5.5.Final |
+| API Docs | SpringDoc OpenAPI 3 / Swagger UI (springdoc 2.3.0) |
 | Metrics | Micrometer + Prometheus |
-| Monitoring | Spring Boot Admin, Grafana |
-| File Storage | Local filesystem **or** AWS S3 (switchable via `attachment.storage.provider`) |
+| Monitoring | Spring Boot Admin 3.5.7, Grafana |
+| File Storage | Local filesystem **or** AWS S3 v2 (switchable via `attachment.storage.provider`) |
 | MIME Validation | Apache Tika 3.2.2 |
 | Build | Maven (Spring Boot Maven Plugin with Buildpacks) |
 
@@ -69,23 +71,23 @@ This document covers every feature the backend exposes, all REST + WebSocket end
 │                                                            │
 │  SecurityConfig (JWT validation via Keycloak JWKS)         │
 │                                                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ Auth /   │ │ Garage / │ │Market-   │ │  Chat        │  │
-│  │ Reg      │ │ Vehicle  │ │ place    │ │  (WS + REST) │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ User     │ │ Verif-   │ │ Attach-  │ │ Authorization│  │
-│  │ Profile  │ │ ication  │ │ ments    │ │ (Groups/Perm)│  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
+│  │ Auth /   │ │ Garage / │ │Market-   │ │  Chat        │   │
+│  │ Reg      │ │ Vehicle  │ │ place    │ │  (WS + REST) │   │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
+│  │ User     │ │ Verif-   │ │ Attach-  │ │ Authorization│   │
+│  │ Profile  │ │ ication  │ │ ments    │ │ (Groups/Perm)│   │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │
 │                                                            │
-│  AOP Audit Layer  │  Micrometer Metrics  │  Actuator      │
+│  AOP Audit Layer  │  Micrometer Metrics  │  Actuator       │
 └──────────┬─────────────────────────────────────────────────┘
            │
            ▼
-┌──────────────────────┐    ┌──────────────────────┐
+┌──────────────────────┐    ┌───────────────────────┐
 │   PostgreSQL 15      │    │   Keycloak 26         │
 │   (JPA + Liquibase)  │    │   (IAM, OIDC,Webhooks)│
-└──────────────────────┘    └──────────────────────┘
+└──────────────────────┘    └───────────────────────┘
 ```
 
 ---
@@ -103,11 +105,13 @@ com.county_cars.vroom
     ├── registration/          RegistrationController
     ├── user_profile/          UserProfileController, UserLocation
     ├── authorization/         GroupController, PermissionController, UserGroupController
-    ├── garage/                VehicleController, GarageController, VehiclePassportController
+    ├── garage/                VehicleController, GarageController, VehiclePassportController,
+    │                          VehicleMediaController, VehicleDocumentController
     ├── marketplace/           ListingController
     ├── chat/                  ChatController, ChatWebSocketHandler (+ WS infra)
     ├── verification/          VerificationController
-    ├── attachment/            AttachmentController, local + S3 storage
+    ├── attachment/            AttachmentController, AttachmentCleanupScheduler,
+    │                          local + S3 storage
     └── keycloak/              KeycloakAdminService, CurrentUserService, Webhooks
 ```
 
@@ -279,6 +283,7 @@ DELETE /api/v1/auth/2fa/disable
 | `GET` | `/api/v1/user-profiles` | ADMIN | List all profiles (paginated) |
 | `PUT` | `/api/v1/user-profiles/{id}` | JWT (owner) / ADMIN | Update profile |
 | `DELETE` | `/api/v1/user-profiles/{id}` | ADMIN | Soft-delete profile |
+| `POST` | `/api/v1/user-profiles/me/avatar` | JWT | Upload / replace profile avatar |
 | `POST` | `/api/v1/user-profiles/{id}/locations` | JWT | Add a location |
 | `GET` | `/api/v1/user-profiles/{id}/locations` | JWT | List locations |
 | `PUT` | `/api/v1/user-profiles/{id}/locations/{locationId}` | JWT | Update a location |
@@ -294,6 +299,17 @@ DELETE /api/v1/auth/2fa/disable
 | `phoneNumber` | String | Optional |
 | `avatarUrl` | String | URL to profile photo attachment |
 | `status` | Enum | See [User Statuses](#registration--email-verification) |
+
+### Avatar Upload
+
+```
+POST /api/v1/user-profiles/me/avatar  [multipart/form-data]
+  file: <image file>
+
+- Allowed types: jpg, jpeg, png, gif, webp (max 10 MB)
+- If the user already has a profile photo the old file is deleted on success
+- Returns the updated profile with the new avatarUrl
+```
 
 ---
 
@@ -338,12 +354,15 @@ All authorization management endpoints are **Admin-only**.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/v1/vehicles` | JWT | Register a new vehicle |
+| `POST` | `/api/v1/garage/vehicles` | JWT | **Preferred** — Create vehicle and add to garage atomically |
 | `PUT` | `/api/v1/vehicles/{id}` | JWT (owner) | Update vehicle details |
 | `GET` | `/api/v1/vehicles/{id}` | JWT | Get vehicle by ID |
 | `GET` | `/api/v1/vehicles/registration/{reg}` | JWT | Find by registration number |
 | `GET` | `/api/v1/vehicles/vin/{vin}` | JWT | Find by VIN |
 | `GET` | `/api/v1/vehicles/my` | JWT | List all vehicles owned by the current user |
+| `DELETE` | `/api/v1/vehicles/{id}` | JWT (owner) | Soft-delete vehicle (cascades to media, documents, garage entries) |
+
+> **Note:** `POST /api/v1/vehicles` (register vehicle only) is **deprecated**. Use `POST /api/v1/garage/vehicles` which creates the vehicle and adds it to the garage in one atomic step.
 
 ### Vehicle Fields
 
@@ -363,12 +382,74 @@ All authorization management endpoints are **Admin-only**.
 | `currentMileage` | Current odometer reading |
 | `firstRegistrationDate` | Date of first UK registration |
 | `previousOwners` | Count of previous registered keepers |
+| `motExpiryDate` | Current MOT expiry date |
+| `taxExpiryDate` | Current vehicle tax expiry date |
 
-All vehicles use soft-delete (`is_deleted = false` SQL restriction).
+All vehicles use soft-delete (`is_deleted = false` SQL restriction). Soft-deleting a vehicle cascades to its linked media and documents.
 
 ---
 
-## 10. Digital Garage
+## 10. Vehicle Media
+
+Manages photos and videos linked to a vehicle. The item with `displayOrder = 1` is used as the vehicle thumbnail.
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/v1/vehicles/{vehicleId}/media` | JWT (owner) | Upload and link a media file |
+| `GET` | `/api/v1/vehicles/{vehicleId}/media` | JWT | List all media ordered by displayOrder |
+| `PATCH` | `/api/v1/vehicles/{vehicleId}/media/{mediaId}/order` | JWT (owner) | Update display order of a media item |
+| `DELETE` | `/api/v1/vehicles/{vehicleId}/media/{mediaId}` | JWT (owner) | Remove a media item |
+
+### Upload Rules
+
+| Constraint | Detail |
+|------------|--------|
+| Allowed image types | `jpg`, `jpeg`, `png`, `gif`, `webp` |
+| Allowed video types | `mp4`, `mov`, `avi` |
+| Max image size | 10 MB per file |
+| Max video size | 100 MB per file |
+| Max images per vehicle | 30 |
+| Max videos per vehicle | 3 |
+| Thumbnail | Item with `displayOrder = 1` |
+
+Upload, validation, and linking happen in a **single coordinated operation**. If linking fails, the uploaded file is automatically cleaned up.
+
+---
+
+## 11. Vehicle Documents
+
+Manages documents (MOT certificates, insurance, service records, etc.) linked to a vehicle.
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/v1/vehicles/{vehicleId}/documents` | JWT (owner) | Upload and link a document |
+| `GET` | `/api/v1/vehicles/{vehicleId}/documents` | JWT | List all documents for a vehicle |
+| `DELETE` | `/api/v1/vehicles/{vehicleId}/documents/{documentId}` | JWT (owner) | Remove a document |
+
+### Document Types
+
+| Type | Description |
+|------|-------------|
+| `MOT` | MOT certificate |
+| `SERVICE` | Service history record |
+| `INVOICE` | Purchase or repair invoice |
+| `INSURANCE` | Insurance document |
+| `OTHER` | Miscellaneous document |
+
+### Upload Rules
+
+- Allowed types: `pdf`, `doc`, `docx`, `jpg`, `jpeg`, `png` (max 25 MB)
+- Upload, validation, and linking happen in a **single atomic operation**
+- If linking fails the uploaded file is cleaned up automatically
+- **Requires a valid Bearer JWT and vehicle ownership**
+
+---
+
+## 12. Digital Garage
 
 The Digital Garage is each user's personal vehicle collection. A vehicle can be saved as `OWNED` or `WISHLIST`.
 
@@ -376,11 +457,29 @@ The Digital Garage is each user's personal vehicle collection. A vehicle can be 
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/api/v1/garage` | JWT | List all vehicles in user's garage |
-| `POST` | `/api/v1/garage` | JWT | Add a vehicle to the garage |
+| `GET` | `/api/v1/garage` | JWT | List all vehicles in user's garage (includes thumbnail + mediaCount) |
+| `POST` | `/api/v1/garage/vehicles` | JWT | **Preferred** — Create a new vehicle and add to garage atomically |
 | `DELETE` | `/api/v1/garage/{vehicleId}` | JWT | Remove a vehicle from the garage |
 | `PATCH` | `/api/v1/garage/category` | JWT | Update vehicle category (OWNED / WISHLIST) |
 | `PATCH` | `/api/v1/garage/notes` | JWT | Update personal notes for a garage vehicle |
+
+> **Note:** `POST /api/v1/garage` (add an existing vehicle by vehicleId) is **deprecated**. Use `POST /api/v1/garage/vehicles` instead.
+
+### Create Vehicle + Add to Garage (`POST /api/v1/garage/vehicles`)
+
+```json
+{
+  "vehicle": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "..."
+  },
+  "garageCategory": "OWNED",
+  "notes": "My daily driver"
+}
+```
+
+Creates the vehicle record and the garage entry in a single atomic request. Returns the `GarageVehicleResponse` which includes vehicle details, garage category, notes, thumbnail URL, and media count.
 
 ### Garage Vehicle Categories
 
@@ -391,7 +490,7 @@ The Digital Garage is each user's personal vehicle collection. A vehicle can be 
 
 ---
 
-## 11. Vehicle Passport
+## 13. Vehicle Passport
 
 The Vehicle Passport aggregates all historical and current data about a vehicle into a single response.
 
@@ -405,17 +504,18 @@ The Vehicle Passport aggregates all historical and current data about a vehicle 
 
 | Section | Data |
 |---------|------|
-| **Identity** | Registration, VIN, make, model, colour, body type, fuel, transmission |
+| **Identity** | Registration, VIN, make, model, variant, colour, body type, fuel, transmission, engine capacity, CO2 emissions, doors |
+| **Current Snapshot** | Current mileage, first registration date, previous owners, MOT expiry date, tax expiry date |
 | **MOT History** | Per-test records: date, expiry, result (PASS/FAIL), advisory notes, failure items, mileage at test |
-| **Mileage History** | Timeline of mileage readings with dates |
-| **Ownership History** | Previous and current owners with start/end dates |
-| **Documents** | Associated documents (V5C, insurance, MOT certificates) |
-| **Media** | Images and videos linked to the vehicle |
-| **Valuation History** | Historic valuations with dates |
+| **Mileage History** | Timeline of mileage readings with dates and source |
+| **Ownership Timeline** | Previous and current owners with start/end dates |
+| **Documents** | Associated documents (MOT certificates, insurance, service records, etc.) |
+| **Media** | Images and videos linked to the vehicle, ordered by displayOrder |
+| **Valuation History** | Historic valuations: dealer retail, trade-in, private sale, auction, and average market values |
 
 ---
 
-## 12. Marketplace (Listings)
+## 14. Marketplace (Listings)
 
 ### Endpoints
 
@@ -477,7 +577,7 @@ POST /api/v1/listings/{id}/enquiries
 
 ---
 
-## 13. Real-Time Chat
+## 15. Real-Time Chat
 
 The chat system uses raw WebSockets for real-time delivery and REST for history and management.
 
@@ -563,7 +663,7 @@ After 2 missed PINGs:
 
 | Feature | Detail |
 |---------|--------|
-| Rate limiting | Token-bucket, 10 messages/second per user (configurable) |
+| Rate limiting | Token-bucket, 10 messages/second per user (configurable) — buckets refilled every 2 s |
 | Deduplication | `messageClientId` (UUID) prevents duplicate messages on retry |
 | Membership check | Only chat participants can send to a chat |
 | Max message size | 5 KB default (configurable) |
@@ -577,7 +677,7 @@ After 2 missed PINGs:
 
 ---
 
-## 14. Verifications
+## 16. Verifications
 
 Manages identity and document verification requests submitted by users and reviewed by admins.
 
@@ -588,7 +688,7 @@ Manages identity and document verification requests submitted by users and revie
 | `POST` | `/api/v1/verifications/user-profiles/{userProfileId}` | JWT | Submit a new verification request |
 | `GET` | `/api/v1/verifications/{id}` | JWT | Get verification request by ID |
 | `GET` | `/api/v1/verifications/user-profiles/{userProfileId}` | JWT | Get all verifications for a user (paginated) |
-| `GET` | `/api/v1/verifications` | ADMIN | List verifications filtered by status (paginated) |
+| `GET` | `/api/v1/verifications` | ADMIN | List verifications filtered by status (paginated, default: PENDING) |
 | `PUT` | `/api/v1/verifications/{id}/review` | ADMIN | Approve or reject a request |
 | `DELETE` | `/api/v1/verifications/{id}` | ADMIN | Soft-delete a verification request |
 
@@ -629,15 +729,20 @@ User submits request
 
 ---
 
-## 15. Attachments
+## 17. Attachments
 
 Provides unified file upload, download and management for all modules.
 
-### Endpoints
+> **Preferred approach:** Use module-specific single-step upload endpoints which upload and link files atomically with automatic cleanup on failure:
+> - `POST /api/v1/vehicles/{vehicleId}/media` — vehicle photos / videos
+> - `POST /api/v1/vehicles/{vehicleId}/documents` — vehicle documents (MOT, insurance…)
+> - `POST /api/v1/user-profiles/me/avatar` — user profile photo
+
+### Generic Endpoints (use module-specific endpoints where available)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/v1/attachments` | JWT | Upload a file (multipart) |
+| `POST` | `/api/v1/attachments` | JWT | Upload a file (multipart) — **deprecated** |
 | `GET` | `/api/v1/attachments/{id}` | JWT | Download / stream file |
 | `DELETE` | `/api/v1/attachments/{id}` | JWT (owner / ADMIN) | Soft-delete attachment |
 
@@ -655,6 +760,14 @@ Provides unified file upload, download and management for all modules.
 | `VERIFICATION_ID` | KYC identity documents |
 | `OTHER` | Miscellaneous |
 
+### Attachment Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `UPLOADED` | File uploaded but not yet linked to an entity |
+| `ACTIVE` | Linked and in use |
+| `DELETED` | Soft-deleted |
+
 ### Visibility Rules
 
 | Visibility | Who Can Download |
@@ -670,7 +783,7 @@ Provides unified file upload, download and management for all modules.
 | Extension whitelist | `jpg, jpeg, png, gif, webp, pdf, doc, docx, xls, xlsx, mp4, mov, avi` |
 | Size – images | Max 10 MB (`PROFILE_PHOTO`, `VEHICLE_IMAGE`) |
 | Size – documents | Max 25 MB |
-| Magic-number check | Apache Tika verifies actual file signature for `jpg`, `png`, `pdf`, `gif` |
+| Magic-number check | Apache Tika 3.2.2 verifies actual file signature for `jpg`, `png`, `pdf`, `gif` |
 
 ### Storage Backends
 
@@ -679,11 +792,20 @@ Switchable via `attachment.storage.provider`:
 | Value | Backend |
 |-------|---------|
 | `local` | Local filesystem (configurable upload dir) |
-| `s3` | AWS S3 (configurable bucket + region) |
+| `s3` | AWS S3 v2 (configurable bucket + region) |
+
+### Orphaned Attachment Cleanup
+
+A scheduled task (`AttachmentCleanupScheduler`) runs **every 10 minutes** to clean up orphaned attachments:
+- Finds all non-deleted attachments with status `UPLOADED` (never linked after upload)
+- Deletes the physical file from storage (best-effort)
+- Soft-deletes the DB record (`status = DELETED`, `is_deleted = true`, `deleted_by = "scheduler"`)
+
+This handles edge cases where the JVM was killed between upload and link steps.
 
 ---
 
-## 16. Keycloak Integration & Webhooks
+## 18. Keycloak Integration & Webhooks
 
 ### Keycloak Admin Service
 
@@ -695,12 +817,14 @@ Switchable via `attachment.storage.provider`:
 | Delete user | Registration rollback on DB failure |
 | Resend verification email | Resend endpoint |
 | Send password-reset email | Forgot-password endpoint |
+| Send forgot-password email | Combined UPDATE_PASSWORD + VERIFY_EMAIL |
 | Set new password | Change-password endpoint |
 | Enable / disable user | Admin operations |
 | Fetch user by ID / email | Auth flows |
 | Get linked social providers | `/auth/me` |
 | Manage OTP credentials | 2FA endpoints |
 | Send required-action emails | 2FA enable |
+| Verify user credentials | Change-password (ROPC grant) |
 
 **All email sending is handled by Keycloak** — the backend never sends mail directly.
 
@@ -730,7 +854,7 @@ Other events (LOGIN, LOGOUT, UPDATE_PASSWORD, REGISTER) are logged and available
 
 ---
 
-## 17. Audit Logging
+## 19. Audit Logging
 
 An AOP aspect (`LoggingAuditAspect`) automatically intercepts all service-layer methods and writes structured logs and audit records.
 
@@ -747,16 +871,16 @@ An AOP aspect (`LoggingAuditAspect`) automatically intercepts all service-layer 
 
 | Column | Description |
 |--------|-------------|
-| `entity_type` | Class name of the affected entity |
+| `entity_type` | Class name of the affected entity (e.g. `UserProfile`) |
 | `entity_id` | ID of the affected record |
 | `action` | `CREATE` / `UPDATE` / `DELETE` |
-| `performed_by` | Keycloak user ID from `SecurityContext` |
-| `metadata` | JSONB — method arguments and result snapshot |
+| `performed_by` | Keycloak user ID from `SecurityContext` (`"system"` for unauthenticated) |
+| `metadata` | JSONB — method name and arguments snapshot |
 | `created_at` | Timestamp (auto-set on persist) |
 
 ---
 
-## 18. Monitoring & Observability
+## 20. Monitoring & Observability
 
 ### Spring Actuator
 
@@ -805,7 +929,7 @@ UI accessible at the application root `/` on the configured port.
 
 ---
 
-## 19. Security Model
+## 21. Security Model
 
 ### JWT Resource Server
 
@@ -813,13 +937,23 @@ All protected endpoints validate Bearer JWTs issued by Keycloak:
 - `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` — fetches Keycloak's public keys
 - `spring.security.oauth2.resourceserver.jwt.issuer-uri` — validates the `iss` claim
 
+### Public Paths (no token required)
+
+| Path | Notes |
+|------|-------|
+| `/swagger-ui/**`, `/swagger-ui.html`, `/v3/api-docs/**` | API documentation |
+| `/actuator/health`, `/actuator/info` | Health checks |
+| `/api/v1/auth/**` | Registration, resend-verification, forgot-password, login flows |
+| `/internal/keycloak/events` | Keycloak webhook (validated by `X-Internal-Secret` header) |
+| `/ws/chat` | WebSocket upgrade — JWT validated inside `ChatHandshakeInterceptor` |
+
 ### Role-Based Access Control
 
 | Role | Capabilities |
 |------|-------------|
 | `ADMIN` | Full access — user management, verifications, groups, permissions |
 | Authenticated user | Own profile, own vehicles/garage, marketplace, chat, own verifications |
-| Public | Registration, forgot-password |
+| Public | Registration, forgot-password, resend-verification |
 
 ### CORS
 
@@ -831,9 +965,16 @@ All major entities use `@SQLRestriction("is_deleted = false")` — deleted recor
 
 ---
 
-## 20. Configuration Reference
+## 22. Configuration Reference
 
 All application settings are driven by environment variables. See `application.properties` for the full mapping.
+
+### Server
+
+| Env Var | Description |
+|---------|-------------|
+| `SERVER_PORT` | HTTP listen port |
+| `SWAGGER_SERVER_URL` | Base URL shown in Swagger UI (default: `http://localhost:<SERVER_PORT>`) |
 
 ### Database
 
@@ -866,6 +1007,16 @@ All application settings are driven by environment variables. See `application.p
 | `AUTH_PASSWORD_RESET_RESEND_INTERVAL_MINUTES` | 2 min cooldown between reset requests |
 | `AUTH_PASSWORD_RESET_DAILY_MAX_RETRIES` | 5 reset attempts per day |
 
+### CORS
+
+| Env Var | Description |
+|---------|-------------|
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins |
+| `CORS_ALLOWED_METHODS` | Comma-separated allowed HTTP methods |
+| `CORS_ALLOWED_HEADERS` | Allowed request headers (`*` = all) |
+| `CORS_EXPOSED_HEADERS` | Headers exposed to the browser |
+| `CORS_MAX_AGE` | Pre-flight cache duration (seconds) |
+
 ### Attachments
 
 | Env Var | Description |
@@ -891,7 +1042,7 @@ All application settings are driven by environment variables. See `application.p
 
 ---
 
-## 21. Running Locally
+## 23. Running Locally
 
 ### Prerequisites
 
@@ -967,10 +1118,16 @@ REGISTRATION_VERIFICATION_RESEND_INTERVAL_MINUTES=2
 REGISTRATION_VERIFICATION_DAILY_MAX_RETRIES=5
 AUTH_PASSWORD_RESET_RESEND_INTERVAL_MINUTES=2
 AUTH_PASSWORD_RESET_DAILY_MAX_RETRIES=5
+
+# Chat / WebSocket
+CHAT_HEARTBEAT_INTERVAL_SECONDS=30
+CHAT_MAX_MISSED_HEARTBEATS=2
+CHAT_MESSAGE_MAX_SIZE_BYTES=5120
+CHAT_RATE_LIMIT_MESSAGES_PER_SECOND=10
 ```
 
 For the full Docker Compose setup (PostgreSQL, Keycloak, Prometheus, Grafana), see the [root README](../README.md).
 
 ---
 
-*Last updated: March 2026*
+*Last updated: April 2026*
