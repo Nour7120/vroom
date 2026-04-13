@@ -24,6 +24,20 @@ public interface VehicleMediaRepository extends JpaRepository<VehicleMedia, Long
     @Query("SELECT vm FROM VehicleMedia vm WHERE vm.vehicle.id IN :vehicleIds AND vm.displayOrder = 1")
     List<VehicleMedia> findThumbnailsByVehicleIds(@Param("vehicleIds") List<Long> vehicleIds);
 
+    /**
+     * Same as {@link #findThumbnailsByVehicleIds} but eagerly fetches the
+     * {@code attachment} association to prevent N+1 when mapping to DTOs.
+     */
+    @Query("SELECT vm FROM VehicleMedia vm JOIN FETCH vm.attachment WHERE vm.vehicle.id IN :vehicleIds AND vm.displayOrder = 1")
+    List<VehicleMedia> findThumbnailsWithAttachmentByVehicleIds(@Param("vehicleIds") List<Long> vehicleIds);
+
+    /**
+     * Loads the full media set for a single vehicle, with the attachment eagerly
+     * fetched to prevent N+1 when building the listing gallery.
+     */
+    @Query("SELECT vm FROM VehicleMedia vm JOIN FETCH vm.attachment WHERE vm.vehicle.id = :vehicleId ORDER BY vm.displayOrder ASC")
+    List<VehicleMedia> findAllWithAttachmentByVehicleId(@Param("vehicleId") Long vehicleId);
+
     /** Count per-vehicle media for the garage list enrichment. */
     @Query("SELECT vm.vehicle.id, COUNT(vm) FROM VehicleMedia vm WHERE vm.vehicle.id IN :vehicleIds GROUP BY vm.vehicle.id")
     List<Object[]> countByVehicleIds(@Param("vehicleIds") List<Long> vehicleIds);

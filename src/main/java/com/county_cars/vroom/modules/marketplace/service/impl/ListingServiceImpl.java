@@ -3,26 +3,20 @@ package com.county_cars.vroom.modules.marketplace.service.impl;
 import com.county_cars.vroom.common.exception.BadRequestException;
 import com.county_cars.vroom.common.exception.NotFoundException;
 import com.county_cars.vroom.common.exception.UnauthorizedException;
-import com.county_cars.vroom.modules.attachment.entity.Attachment;
-import com.county_cars.vroom.modules.attachment.entity.AttachmentVisibility;
-import com.county_cars.vroom.modules.attachment.repository.AttachmentRepository;
 import com.county_cars.vroom.modules.garage.entity.Vehicle;
+import com.county_cars.vroom.modules.garage.entity.VehicleMedia;
+import com.county_cars.vroom.modules.garage.repository.VehicleMediaRepository;
 import com.county_cars.vroom.modules.garage.repository.VehicleRepository;
+import com.county_cars.vroom.modules.garage.repository.VehicleValuationHistoryRepository;
 import com.county_cars.vroom.modules.keycloak.CurrentUserService;
-import com.county_cars.vroom.modules.marketplace.dto.request.AddListingImagesRequest;
-import com.county_cars.vroom.modules.marketplace.dto.request.CreateEnquiryRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.CreateListingRequest;
 import com.county_cars.vroom.modules.marketplace.dto.request.SearchListingsRequest;
-import com.county_cars.vroom.modules.marketplace.dto.response.EnquiryResponse;
+import com.county_cars.vroom.modules.marketplace.dto.request.UpdateListingRequest;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingDetailsResponse;
 import com.county_cars.vroom.modules.marketplace.dto.response.ListingSummaryResponse;
 import com.county_cars.vroom.modules.marketplace.entity.Listing;
-import com.county_cars.vroom.modules.marketplace.entity.ListingAttachment;
-import com.county_cars.vroom.modules.marketplace.entity.ListingEnquiry;
 import com.county_cars.vroom.modules.marketplace.entity.ListingStatus;
 import com.county_cars.vroom.modules.marketplace.mapper.ListingMapper;
-import com.county_cars.vroom.modules.marketplace.repository.ListingAttachmentRepository;
-import com.county_cars.vroom.modules.marketplace.repository.ListingEnquiryRepository;
 import com.county_cars.vroom.modules.marketplace.repository.ListingRepository;
 import com.county_cars.vroom.modules.marketplace.repository.ListingSearchRepository;
 import com.county_cars.vroom.modules.marketplace.service.ListingService;
@@ -35,7 +29,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -43,16 +40,13 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class ListingServiceImpl implements ListingService {
 
-    private static final int MAX_IMAGES_PER_LISTING = 5;
-
-    private final ListingRepository            listingRepository;
-    private final ListingAttachmentRepository  listingAttachmentRepository;
-    private final ListingEnquiryRepository     listingEnquiryRepository;
-    private final ListingSearchRepository      listingSearchRepository;
-    private final VehicleRepository            vehicleRepository;
-    private final AttachmentRepository         attachmentRepository;
-    private final ListingMapper                listingMapper;
-    private final CurrentUserService           currentUserService;
+    private final ListingRepository                 listingRepository;
+    private final ListingSearchRepository           listingSearchRepository;
+    private final VehicleRepository                 vehicleRepository;
+    private final VehicleMediaRepository            vehicleMediaRepository;
+    private final VehicleValuationHistoryRepository vehicleValuationHistoryRepository;
+    private final ListingMapper                     listingMapper;
+    private final CurrentUserService                currentUserService;
 
     // ── Seller operations ─────────────────────────────────────────────────────
 
@@ -65,6 +59,14 @@ public class ListingServiceImpl implements ListingService {
                 .findByIdAndOwnerKeycloakId(request.getVehicleId(), seller.getKeycloakUserId())
                 .orElseThrow(() -> new NotFoundException(
                         "Vehicle not found or does not belong to the current user: " + request.getVehicleId()));
+
+        // Guard: prevent duplicate active/draft listings for the same vehicle
+        if (listingRepository.existsByVehicleIdAndSellerIdAndStatusIn(
+                vehicle.getId(), seller.getId(),
+                List.of(ListingStatus.ACTIVE, ListingStatus.DRAFT))) {
+            throw new BadRequestException(
+                    "An active or draft listing already exists for vehicle: " + request.getVehicleId());
+        }
 
         Listing listing = Listing.builder()
                 .vehicle(vehicle)
@@ -84,46 +86,23 @@ public class ListingServiceImpl implements ListingService {
 
     @Override
     @Transactional
-    public ListingDetailsResponse addListingImages(Long listingId, AddListingImagesRequest request) {
+    public ListingDetailsResponse updateListing(Long listingId, UpdateListingRequest request) {
         Listing listing = requireOwnedListing(listingId);
 
-        int existing = listingAttachmentRepository.countByListingId(listingId);
-        int incoming = request.getAttachmentIds().size();
-
-        if (existing + incoming > MAX_IMAGES_PER_LISTING) {
+        if (listing.getStatus() == ListingStatus.SOLD
+                || listing.getStatus() == ListingStatus.WITHDRAWN
+                || listing.getStatus() == ListingStatus.EXPIRED) {
             throw new BadRequestException(
-                    "Adding " + incoming + " image(s) would exceed the maximum of "
-                    + MAX_IMAGES_PER_LISTING + " images per listing. Current count: " + existing);
+                    "Cannot update a listing with status: " + listing.getStatus());
         }
 
-        int nextOrder = existing + 1;
+        if (request.getPrice()       != null) listing.setPrice(request.getPrice());
+        if (request.getDescription() != null) listing.setDescription(request.getDescription());
+        if (request.getLocation()    != null) listing.setLocation(request.getLocation());
+        if (request.getFeatured()    != null) listing.setFeatured(request.getFeatured());
 
-        for (Long attachmentId : request.getAttachmentIds()) {
-            if (listingAttachmentRepository.existsByListingIdAndAttachmentId(listingId, attachmentId)) {
-                throw new BadRequestException("Attachment " + attachmentId + " is already linked to this listing");
-            }
-
-            Attachment attachment = attachmentRepository.findById(attachmentId)
-                    .orElseThrow(() -> new NotFoundException("Attachment not found: " + attachmentId));
-
-            validateVehicleImage(attachment);
-
-            ListingAttachment la = ListingAttachment.builder()
-                    .listing(listing)
-                    .attachment(attachment)
-                    .displayOrder(nextOrder++)
-                    .build();
-            listingAttachmentRepository.save(la);
-
-            // Set first image as primary
-            if (listing.getPrimaryImage() == null) {
-                listing.setPrimaryImage(attachment);
-            }
-        }
-
-        // If primary image was just set for the first time, persist it
         Listing saved = listingRepository.save(listing);
-        log.info("Added {} image(s) to listing {}", incoming, listingId);
+        log.info("Listing updated: id={}", listingId);
 
         return buildDetails(saved);
     }
@@ -165,20 +144,43 @@ public class ListingServiceImpl implements ListingService {
         return buildDetails(saved);
     }
 
+    @Override
+    @Transactional
+    public ListingDetailsResponse withdrawListing(Long listingId) {
+        Listing listing = requireOwnedListing(listingId);
+
+        if (listing.getStatus() != ListingStatus.ACTIVE && listing.getStatus() != ListingStatus.DRAFT) {
+            throw new BadRequestException(
+                    "Only an ACTIVE or DRAFT listing can be withdrawn. Current status: " + listing.getStatus());
+        }
+
+        listing.setStatus(ListingStatus.WITHDRAWN);
+
+        Listing saved = listingRepository.save(listing);
+        log.info("Listing withdrawn: id={}", listingId);
+
+        return buildDetails(saved);
+    }
+
+    @Override
+    public Page<ListingSummaryResponse> getMyListings(Pageable pageable) {
+        UserProfile seller = currentUserService.getCurrentUserProfile();
+        Page<Listing> listings = listingRepository.findAllBySellerId(seller.getId(), pageable);
+        return enrichSummaryPage(listings);
+    }
+
     // ── Buyer / public operations ─────────────────────────────────────────────
 
     @Override
     public Page<ListingSummaryResponse> browseActiveListings(Pageable pageable) {
-        return listingRepository
-                .findAllByStatus(ListingStatus.ACTIVE, pageable)
-                .map(listingMapper::toSummaryResponse);
+        return enrichSummaryPage(
+                listingRepository.findAllByStatus(ListingStatus.ACTIVE, pageable));
     }
 
     @Override
     public Page<ListingSummaryResponse> searchListings(SearchListingsRequest filter, Pageable pageable) {
-        return listingSearchRepository
-                .search(filter, pageable)
-                .map(listingMapper::toSummaryResponse);
+        return enrichSummaryPage(
+                listingSearchRepository.search(filter, pageable));
     }
 
     @Override
@@ -186,27 +188,6 @@ public class ListingServiceImpl implements ListingService {
         Listing listing = listingRepository.findById(listingId)
                 .orElseThrow(() -> new NotFoundException("Listing not found: " + listingId));
         return buildDetails(listing);
-    }
-
-    @Override
-    @Transactional
-    public EnquiryResponse submitEnquiry(Long listingId, CreateEnquiryRequest request) {
-        Listing listing = listingRepository.findById(listingId)
-                .orElseThrow(() -> new NotFoundException("Listing not found: " + listingId));
-
-        if (listing.getStatus() != ListingStatus.ACTIVE) {
-            throw new BadRequestException("Enquiries can only be sent on ACTIVE listings");
-        }
-
-        ListingEnquiry enquiry = ListingEnquiry.builder()
-                .listing(listing)
-                .message(request.getMessage())
-                .build();
-
-        ListingEnquiry saved = listingEnquiryRepository.save(enquiry);
-        log.info("Enquiry submitted: enquiryId={}, listingId={}", saved.getId(), listingId);
-
-        return listingMapper.toEnquiryResponse(saved);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -226,36 +207,75 @@ public class ListingServiceImpl implements ListingService {
     }
 
     /**
-     * Validates that an attachment is a PUBLIC image.
-     * Category is inferred from the MIME type (no category field on Attachment).
+     * Maps a page of {@link Listing} entities to {@link ListingSummaryResponse} DTOs,
+     * using a single batch query to load vehicle thumbnails (no N+1).
      */
-    private void validateVehicleImage(Attachment attachment) {
-        if (!attachment.getContentType().startsWith("image/")) {
-            throw new BadRequestException(
-                    "Attachment " + attachment.getId() + " must be an image, "
-                    + "but detected MIME type was: " + attachment.getContentType());
+    private Page<ListingSummaryResponse> enrichSummaryPage(Page<Listing> listings) {
+        if (listings.isEmpty()) {
+            return listings.map(listingMapper::toSummaryResponse);
         }
-        if (attachment.getVisibility() != AttachmentVisibility.PUBLIC) {
-            throw new BadRequestException(
-                    "Attachment " + attachment.getId() + " must have visibility PUBLIC, "
-                    + "but was: " + attachment.getVisibility());
-        }
+
+        List<Long> vehicleIds = listings.getContent().stream()
+                .map(l -> l.getVehicle().getId())
+                .collect(Collectors.toList());
+
+        Map<Long, VehicleMedia> thumbnailMap = vehicleMediaRepository
+                .findThumbnailsWithAttachmentByVehicleIds(vehicleIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        vm -> vm.getVehicle().getId(),
+                        vm -> vm,
+                        (a, b) -> a));
+
+        return listings.map(listing -> {
+            ListingSummaryResponse summary = listingMapper.toSummaryResponse(listing);
+
+            VehicleMedia thumbnail = thumbnailMap.get(listing.getVehicle().getId());
+            if (thumbnail != null) {
+                summary.setPrimaryImageId(thumbnail.getAttachment().getId());
+                summary.setPrimaryImageFileName(thumbnail.getAttachment().getFileName());
+            }
+
+            if (listing.getPublishedAt() != null) {
+                summary.setDaysOnMarket(
+                        ChronoUnit.DAYS.between(listing.getPublishedAt(), Instant.now()));
+            }
+
+            return summary;
+        });
     }
 
     /**
-     * Assembles a full ListingDetailsResponse including ordered images.
+     * Assembles a full {@link ListingDetailsResponse}, enriching it with vehicle
+     * media (gallery + primary image) and the latest valuation snapshot.
      */
     private ListingDetailsResponse buildDetails(Listing listing) {
         ListingDetailsResponse response = listingMapper.toDetailsResponse(listing);
 
-        List<ListingAttachment> attachments =
-                listingAttachmentRepository.findAllByListingIdOrderByDisplayOrderAsc(listing.getId());
+        Long vehicleId = listing.getVehicle().getId();
 
-        response.setImages(listingMapper.toImageResponses(attachments));
+        // ── Vehicle media – single source of truth ─────────────────────────
+        List<VehicleMedia> media = vehicleMediaRepository
+                .findAllWithAttachmentByVehicleId(vehicleId);
+
+        response.setGallery(listingMapper.toVehicleMediaResponses(media));
+
+        if (!media.isEmpty()) {
+            response.setPrimaryImage(listingMapper.toVehicleMediaResponse(media.get(0)));
+        }
+
+        // ── Days on market ─────────────────────────────────────────────────
+        if (listing.getPublishedAt() != null) {
+            response.setDaysOnMarket(
+                    ChronoUnit.DAYS.between(listing.getPublishedAt(), Instant.now()));
+        }
+
+        // ── Valuation summary ──────────────────────────────────────────────
+        vehicleValuationHistoryRepository
+                .findFirstByVehicleIdOrderByValuationDateDesc(vehicleId)
+                .ifPresent(v -> response.setValuationSummary(
+                        listingMapper.toValuationSummaryResponse(v)));
+
         return response;
     }
 }
-
-
-
-

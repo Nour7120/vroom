@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -20,6 +21,15 @@ public interface ListingRepository extends JpaRepository<Listing, Long> {
     Optional<Listing> findById(Long id);
 
     boolean existsByIdAndSellerKeycloakUserId(Long id, String keycloakUserId);
+
+    /** Returns all listings belonging to a specific seller – for the seller dashboard. */
+    Page<Listing> findAllBySellerId(Long sellerId, Pageable pageable);
+
+    /**
+     * Guards against a seller creating duplicate ACTIVE / DRAFT listings for the same vehicle.
+     * SOLD, WITHDRAWN and EXPIRED listings are terminal states and do NOT block re-listing.
+     */
+    boolean existsByVehicleIdAndSellerIdAndStatusIn(Long vehicleId, Long sellerId, List<ListingStatus> statuses);
 }
 
 

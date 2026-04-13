@@ -34,13 +34,32 @@ public class ListingDetailsResponse {
     @Schema(description = "When the listing was created")
     private LocalDateTime createdAt;
 
-    @Schema(description = "Vehicle information")
+    @Schema(description = "True when this listing has been boosted for marketplace visibility")
+    private Boolean featured;
+
+    @Schema(description = "Number of days the listing has been active on the marketplace (null if not yet published)")
+    private Long daysOnMarket;
+
+    // ── Vehicle info ──────────────────────────────────────────────────────────
+
+    @Schema(description = "Full vehicle information sourced from the Vehicle Passport")
     private VehicleSummaryResponse vehicle;
+
+    // ── Media – vehicle is the single source of truth ─────────────────────────
+
+    @Schema(description = "Primary thumbnail (vehicle.media[displayOrder=1])")
+    private VehicleMediaResponse primaryImage;
+
+    @Schema(description = "Full media gallery ordered by display_order, sourced from vehicle.media")
+    private List<VehicleMediaResponse> gallery;
+
+    // ── Valuation ─────────────────────────────────────────────────────────────
+
+    @Schema(description = "Most recent valuation snapshot for this vehicle (null if no valuation recorded)")
+    private ValuationSummaryResponse valuationSummary;
+
+    // ── Seller info ───────────────────────────────────────────────────────────
 
     @Schema(description = "Seller basic information")
     private SellerSummaryResponse seller;
-
-    @Schema(description = "Images ordered by display_order")
-    private List<ListingImageResponse> images;
 }
-

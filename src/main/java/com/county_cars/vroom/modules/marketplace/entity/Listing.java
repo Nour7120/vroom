@@ -1,7 +1,6 @@
 package com.county_cars.vroom.modules.marketplace.entity;
 
 import com.county_cars.vroom.common.entity.BaseEntity;
-import com.county_cars.vroom.modules.attachment.entity.Attachment;
 import com.county_cars.vroom.modules.garage.entity.Vehicle;
 import com.county_cars.vroom.modules.user_profile.entity.UserProfile;
 import jakarta.persistence.*;
@@ -46,11 +45,14 @@ public class Listing extends BaseEntity {
     @Column(name = "location", length = 255)
     private String location;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "primary_image_id")
-    private Attachment primaryImage;
-
     @Column(name = "published_at")
     private Instant publishedAt;
-}
 
+    /**
+     * When {@code true} this listing is boosted and shown at the top of browse results.
+     * Only operators / admins should flip this flag.
+     */
+    @Column(name = "featured", nullable = false)
+    @Builder.Default
+    private Boolean featured = false;
+}

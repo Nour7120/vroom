@@ -84,6 +84,7 @@ public class KeycloakAdminService {
             log.info("Keycloak user created: id={} email={}", userId, request.getEmail());
             if (request.isSendVerificationEmail())
             {
+                // TODO: If error happens -> remove user from keycloak.
                 userResource(userId).executeActionsEmail(List.of("VERIFY_EMAIL"));
                 log.info("Keycloak verification email sent for userId={}", userId);
             }

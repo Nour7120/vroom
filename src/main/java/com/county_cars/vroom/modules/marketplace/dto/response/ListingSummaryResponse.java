@@ -33,14 +33,24 @@ public class ListingSummaryResponse {
     @Schema(description = "Listing location", example = "Dublin, Ireland")
     private String location;
 
-    @Schema(description = "Primary image attachment ID")
+    /**
+     * Primary image sourced from {@code vehicle.media[displayOrder=1]}.
+     * Populated by the service via batch query – never set by the mapper.
+     */
+    @Schema(description = "Primary image attachment ID (from vehicle.media[1])")
     private Long primaryImageId;
 
-    @Schema(description = "Primary image file name")
+    @Schema(description = "Primary image file name (from vehicle.media[1])")
     private String primaryImageFileName;
 
     @Schema(description = "Listing status")
     private ListingStatus status;
+
+    @Schema(description = "True when this listing has been boosted for marketplace visibility")
+    private Boolean featured;
+
+    @Schema(description = "Number of days the listing has been active on the marketplace (null if not yet published)")
+    private Long daysOnMarket;
 
     @Schema(description = "When the listing was published")
     private Instant publishedAt;
@@ -48,4 +58,3 @@ public class ListingSummaryResponse {
     @Schema(description = "When the listing was created")
     private LocalDateTime createdAt;
 }
-

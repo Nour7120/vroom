@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Phase 2 + 3 cleanup:
+          - Drop the legacy listing_attachment table (media is now owned exclusively by vehicle_media).
+          - Drop the listing.primary_image_id column (primary image is now read from vehicle_media[displayOrder=1]).
+          - Drop the listing_enquiry table (enquiry / messaging feature removed from this module).
+        Must run AFTER the initial schema, constraints, and index migrations.
+    -->
+
+    <changeSet id="016-drop-listing-attachment" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            DROP TABLE IF EXISTS listing_attachment CASCADE;
+            COMMENT ON TABLE listing IS 'Marketplace vehicle listings – media owned exclusively by vehicle_media';
+        </sql>
+    </changeSet>
+
+    <changeSet id="017-drop-listing-primary-image-id" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            ALTER TABLE listing
+                DROP CONSTRAINT IF EXISTS fk_listing_primary_image;
+
+            ALTER TABLE listing
+                DROP COLUMN IF EXISTS primary_image_id;
+        </sql>
+    </changeSet>
+
+    <changeSet id="018-drop-listing-enquiry" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            DROP TABLE IF EXISTS listing_enquiry CASCADE;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
+
