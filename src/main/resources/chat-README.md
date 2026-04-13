@@ -1,230 +1,386 @@
-# VROOM Chat System
+# VROOM Chat System — Complete Technical Reference
+
+> **Last updated: April 2026**  
+> Spring Boot 3.5.11 · Java 21 · PostgreSQL 15 · Raw WebSockets (no STOMP)
+
+---
 
 ## Table of Contents
 
 1. [Why WebSockets](#1-why-websockets)
 2. [Architecture Overview](#2-architecture-overview)
-3. [Module Structure](#3-module-structure)
-4. [WebSocket Lifecycle](#4-websocket-lifecycle)
-5. [Database Schema](#5-database-schema)
-6. [Message State Lifecycle](#6-message-state-lifecycle)
-7. [Offline Message Handling](#7-offline-message-handling)
-8. [Duplicate Message Prevention](#8-duplicate-message-prevention)
-9. [Heartbeat Mechanism](#9-heartbeat-mechanism)
-10. [Rate Limiting](#10-rate-limiting)
-11. [Message Size Limits](#11-message-size-limits)
-12. [Security](#12-security)
-13. [REST APIs](#13-rest-apis)
-14. [Metrics and Observability](#14-metrics-and-observability)
-15. [Attachment Support (Phase 2)](#15-attachment-support-phase-2)
-16. [Configuration Reference](#16-configuration-reference)
-17. [Scaling Strategy](#17-scaling-strategy)
-18. [Future Improvements](#18-future-improvements)
+3. [Component Breakdown — Every File Explained](#3-component-breakdown--every-file-explained)
+4. [Data Model — Entities & Enums](#4-data-model--entities--enums)
+5. [Database Schema — Full DDL + Constraints + Indexes](#5-database-schema--full-ddl--constraints--indexes)
+6. [Message Formats — Every WebSocket Frame](#6-message-formats--every-websocket-frame)
+7. [REST API — Full Reference](#7-rest-api--full-reference)
+8. [Message State Lifecycle](#8-message-state-lifecycle)
+9. [Complete End-to-End Flows](#9-complete-end-to-end-flows)
+    - 9.1 [First-Time Chat (from Marketplace Listing)](#91-first-time-chat-from-marketplace-listing)
+    - 9.2 [Send a Message — Both Users Online](#92-send-a-message--both-users-online)
+    - 9.3 [Send a Message — Receiver Offline](#93-send-a-message--receiver-offline)
+    - 9.4 [Receiver Reconnects — Offline Delivery + STATUS_UPDATE to Sender](#94-receiver-reconnects--offline-delivery--status_update-to-sender)
+    - 9.5 [Read Receipt Flow](#95-read-receipt-flow)
+    - 9.6 [Load Message History (Pagination)](#96-load-message-history-pagination)
+    - 9.7 [Heartbeat / Keep-Alive](#97-heartbeat--keep-alive)
+    - 9.8 [Session Eviction (missed heartbeats)](#98-session-eviction-missed-heartbeats)
+    - 9.9 [Rate-Limit Rejection](#99-rate-limit-rejection)
+    - 9.10 [Duplicate Message Rejection](#910-duplicate-message-rejection)
+    - 9.11 [Multi-Device Login](#911-multi-device-login)
+    - 9.12 [WebSocket Token Expiry & Reconnect](#912-websocket-token-expiry--reconnect)
+10. [Safety & Reliability Features](#10-safety--reliability-features)
+11. [Metrics & Observability](#11-metrics--observability)
+12. [Client Responsibilities](#12-client-responsibilities)
+    - 12.1 [Authentication & Token Management](#121-authentication--token-management)
+    - 12.2 [Opening a Chat](#122-opening-a-chat)
+    - 12.3 [WebSocket Connection Management](#123-websocket-connection-management)
+    - 12.4 [Sending Messages](#124-sending-messages)
+    - 12.5 [Receiving Messages](#125-receiving-messages)
+    - 12.6 [Heartbeat Handling](#126-heartbeat-handling)
+    - 12.7 [Error Handling](#127-error-handling)
+    - 12.8 [Loading History & Pagination](#128-loading-history--pagination)
+    - 12.9 [Unread Counts & Badge Updates](#129-unread-counts--badge-updates)
+13. [Known Gaps & Future Work](#13-known-gaps--future-work)
+14. [Configuration Reference](#14-configuration-reference)
+15. [Scaling Strategy](#15-scaling-strategy)
+16. [Roadmap](#16-roadmap)
 
 ---
 
 ## 1. Why WebSockets
 
 | Option | Why rejected |
-|---|---|
-| **HTTP Polling** | Wasteful — client hammers the server every N seconds regardless of activity |
+|--------|-------------|
+| **HTTP Polling** | Client hammers the server every N seconds regardless of activity — wasteful and adds latency |
 | **Server-Sent Events (SSE)** | One-directional only — client cannot send messages over the same connection |
 | **WebSockets** | ✅ Full-duplex, persistent, low-latency — ideal for real-time bidirectional chat |
 
 WebSockets were chosen because:
 - **Real-time delivery** — messages appear instantly without polling delay
-- **Low overhead** — after the initial HTTP upgrade handshake, frames have only 2–10 bytes of framing overhead vs full HTTP headers per request
+- **Low overhead** — after the HTTP upgrade handshake, frames have only 2–10 bytes of framing overhead vs full HTTP headers per request
 - **Native Spring support** — `spring-boot-starter-websocket` integrates cleanly with the existing security and DI container
-- **Scale target** — the system is designed for ~10k concurrent users, well within single-node WebSocket capacity
+- **Scale target** — designed for ~10k concurrent users, well within single-node WebSocket capacity
 
 ---
 
 ## 2. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        CLIENT                               │
-│  ws://host/ws/chat?token=<JWT>   HTTP /api/v1/chats/**      │
-└───────────────┬──────────────────────────┬──────────────────┘
-                │ WebSocket                │ REST
-                ▼                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     SPRING BOOT SERVER                       │
-│                                                              │
-│  ChatHandshakeInterceptor  ◄── JWT validation at upgrade     │
-│         │                                                    │
-│         ▼                                                    │
-│  ChatWebSocketHandler      ◄── PING/PONG/CHAT frame dispatch │
-│    │         │                                               │
-│    │         ▼                                               │
-│    │  MessageRateLimiter   ◄── 10 msg/sec per user           │
-│    │                                                         │
-│    ▼                                                         │
-│  ChatSessionManager        ◄── userId → WebSocketSession map │
-│    │                            + heartbeat scheduler        │
-│    ▼                                                         │
-│  ChatService               ◄── business logic + DB          │
-│    │         │                                               │
-│    ▼         ▼                                               │
-│  ChatRepo  MessageRepo     ◄── JPA / PostgreSQL              │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Component Responsibilities
-
-| Component | Responsibility |
-|---|---|
-| `ChatHandshakeInterceptor` | Validates JWT at WS upgrade time; stores `userId` in session attributes |
-| `ChatWebSocketHandler` | Routes frames: CHAT → service, PING → PONG, PONG → heartbeat reset |
-| `ChatSessionManager` | Thread-safe `ConcurrentHashMap<userId, WebSocketSession>` + heartbeat scheduler |
-| `MessageRateLimiter` | Token-bucket rate limiter, refilled every second |
-| `ChatService` | Deduplication, membership check, persist, live delivery, offline recovery |
-| `ChatRepository` | Canonical participant-ordered chat lookup |
-| `MessageRepository` | Timeline queries, undelivered lookup, bulk status update |
-| `ChatController` | REST: open chat, list chats, paginated message history |
-
----
-
-## 3. Module Structure
-
-```
-modules/chat/
-├── config/
-│   ├── ChatProperties.java          # @Value bindings for all chat.* properties
-│   └── WebSocketConfig.java         # Registers /ws/chat handler + interceptor
-├── controller/
-│   └── ChatController.java          # REST: POST /chats, GET /chats, GET /chats/{id}/messages
-├── dto/
-│   ├── ChatResponse.java            # REST response: chat summary with unread count
-│   ├── MessageResponse.java         # REST response: single message
-│   ├── OpenChatRequest.java         # REST request: open or get a chat
-│   ├── WsInboundMessage.java        # WebSocket frame: client → server
-│   └── WsOutboundMessage.java       # WebSocket frame: server → client
-├── entity/
-│   ├── Chat.java                    # @Entity: conversation between two users
-│   ├── Message.java                 # @Entity: individual message (immutable)
-│   ├── MessageStatus.java           # SENT | DELIVERED | READ
-│   ├── MessageType.java             # TEXT | IMAGE | FILE
-│   └── WsMessageType.java           # CHAT | ACK | DELIVERY | STATUS_UPDATE | PING | PONG | ERROR
-├── repository/
-│   ├── ChatRepository.java          # isParticipant, findByParticipants, findAllByParticipant
-│   └── MessageRepository.java       # timeline, undelivered, dedup, bulk status update
-├── service/
-│   ├── ChatService.java             # Interface
-│   └── impl/
-│       └── ChatServiceImpl.java     # Full implementation with Micrometer metrics
-└── websocket/
-    ├── ChatHandshakeInterceptor.java # JWT validation at HTTP → WS upgrade
-    ├── ChatSessionManager.java       # userId ↔ session registry + heartbeat
-    ├── ChatWebSocketHandler.java     # TextWebSocketHandler: connects, routes, disconnects
-    └── MessageRateLimiter.java       # Token-bucket per-user rate limiter
+┌──────────────────────────────────────────────────────────────────────┐
+│                           CLIENT (Mobile / Web)                      │
+│                                                                      │
+│  [REST calls over HTTPS]          [WebSocket over WSS]               │
+│  • GET/POST /api/v1/chats/**      • ws://host/ws/chat?token=<JWT>    │
+│  • Paginated message history      • Bidirectional real-time frames   │
+│  • Open / list chats              • CHAT | READ_RECEIPT | PING | PONG│
+│                                   • ACK | DELIVERY | STATUS_UPDATE   │
+└──────────────┬────────────────────────────┬─────────────────────────┘
+               │ HTTPS                      │ WSS
+               ▼                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       SPRING BOOT SERVER                            │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  SecurityConfig  ←  JWT validation (Keycloak JWKS)           │   │
+│  │  /ws/chat is public path — auth done by ChatHandshakeInt.    │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  REST Layer:                                                        │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  ChatController  →  ChatService  →  DB                     │     │
+│  │  POST /api/v1/chats  (listingId required)                  │     │
+│  │  GET  /api/v1/chats                                        │     │
+│  │  GET  /api/v1/chats/{id}/messages                         │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                                                                     │
+│  WebSocket Layer:                                                   │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  ChatHandshakeInterceptor  ←  JWT decode at WS upgrade      │     │
+│  │           │                                                 │     │
+│  │           ▼                                                 │     │
+│  │  ChatWebSocketHandler  ←  frame routing                     │     │
+│  │    ├── MessageRateLimiter  ←  10 msg/s token bucket         │     │
+│  │    ├── ChatSessionManager  ←  userId↔List<session> map      │     │
+│  │    │       ├── multi-device fan-out to all sessions         │     │
+│  │    │       └── heartbeat scheduler (per-session tracking)   │     │
+│  │    └── ChatService  ←  business logic                       │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                                                                     │
+│  Data Layer:                                                        │
+│  ┌──────────────────────────┐  ┌─────────────────────────────────┐  │
+│  │  ChatRepository          │  │  MessageRepository              │  │
+│  │  • findByParticipants    │  │  • paginated history            │  │
+│  │  • findAllByParticipant  │  │  • undelivered lookup           │  │
+│  │  • isParticipant         │  │  • dedup check                  │  │
+│  └──────────────────────────┘  │  • bulk status update           │  │
+│                                │  • batch unread count           │  │
+│                                │  • delivered-for-reader query   │  │
+│                                └─────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────┐
+│   PostgreSQL 15      │
+│   chat + message     │
+│   tables             │
+└──────────────────────┘
 ```
 
 ---
 
-## 4. WebSocket Lifecycle
+## 3. Component Breakdown — Every File Explained
 
-### Connection
+### `config/ChatProperties.java`
 
-```
-Client                              Server
-  │                                   │
-  │── HTTP GET /ws/chat?token=<JWT> ──►│
-  │                                   │  ChatHandshakeInterceptor.beforeHandshake()
-  │                                   │    → decode JWT
-  │                                   │    → store keycloakUserId in attributes
-  │◄── 101 Switching Protocols ───────│
-  │                                   │  ChatWebSocketHandler.afterConnectionEstablished()
-  │                                   │    → register session in ChatSessionManager
-  │◄── [offline messages delivered] ──│    → deliverOfflineMessages()
-```
+Reads all `chat.*` application properties via `@Value`.  
+Provides typed access to: heartbeat interval, max missed heartbeats, max message size, messages per second.  
+All values are configurable via environment variables (e.g. `CHAT_HEARTBEAT_INTERVAL_SECONDS`).
 
-### Sending a Message
+### `config/WebSocketConfig.java`
 
-```
-Client                              Server
-  │                                   │
-  │── { type:CHAT, chatId:42,         │
-  │     messageClientId:"uuid",       │
-  │     content:"Hello!" } ──────────►│
-  │                                   │  ChatWebSocketHandler.handleTextMessage()
-  │                                   │    → rate limit check
-  │                                   │    → ChatService.processMessage()
-  │                                   │        → membership check
-  │                                   │        → deduplication check
-  │                                   │        → persist Message (status=SENT)
-  │                                   │        → attempt live delivery to receiver
-  │◄── { type:ACK,                    │
-  │      messageId:99,                │
-  │      status:DELIVERED } ──────────│
-  │                                   │
-  │                    Receiver ◄─────│── { type:CHAT, messageId:99, ... }
+Spring WebSocket configuration. Registers the `/ws/chat` endpoint with:
+- **Handler**: `ChatWebSocketHandler` — processes all inbound frames
+- **Interceptor**: `ChatHandshakeInterceptor` — validates JWT before upgrading
+- **Origin patterns**: `"*"` (should be restricted to `CORS_ALLOWED_ORIGINS` in production)
+
+### `controller/ChatController.java`
+
+Standard Spring `@RestController` at `/api/v1/chats`. Three endpoints visible in Swagger UI.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/v1/chats` | Open an existing chat or create a new one (idempotent) |
+| `GET /api/v1/chats` | Return all chats for the current user, sorted by most recent message |
+| `GET /api/v1/chats/{chatId}/messages` | Paginated message history (30 per page, newest first) |
+
+### `dto/OpenChatRequest.java`
+
+Request body for `POST /api/v1/chats`:
+
+```json
+{
+  "otherUserId": 5,
+  "listingId": 12
+}
 ```
 
-### Heartbeat
+Both fields are **required** (`@NotNull`). Every chat must originate from a marketplace listing.
+
+### `dto/ChatResponse.java`
+
+```json
+{
+  "id": 1,
+  "otherUserId": 5,
+  "otherUserDisplayName": "John Doe",
+  "listingId": 12,
+  "lastMessageAt": "2026-04-12T10:00:00Z",
+  "unreadCount": 3
+}
+```
+
+`unreadCount` = messages with status `SENT` or `DELIVERED`. Resets when the user sends a `READ_RECEIPT`.
+
+### `dto/MessageResponse.java`
+
+```json
+{
+  "id": 99,
+  "chatId": 1,
+  "senderId": 3,
+  "senderDisplayName": "Alice",
+  "content": "Is this still available?",
+  "messageType": "TEXT",
+  "status": "READ",
+  "messageClientId": "550e8400-e29b-41d4-a716-446655440000",
+  "createdAt": "2026-04-12T10:01:00Z"
+}
+```
+
+### `dto/WsInboundMessage.java`
+
+WebSocket frame sent **by the client to the server**:
+
+| Field | Required for | Description |
+|-------|-------------|-------------|
+| `type` | All frames | `CHAT`, `PING`, `PONG`, `READ_RECEIPT` |
+| `chatId` | `CHAT`, `READ_RECEIPT` | Target conversation ID |
+| `messageClientId` | `CHAT` | UUID-v4 idempotency key generated by client |
+| `messageType` | `CHAT` (optional) | `TEXT` (default), `IMAGE`, `FILE` |
+| `content` | `CHAT` | Message text body |
+
+### `dto/WsOutboundMessage.java`
+
+WebSocket frame sent **by the server to the client**:
+
+| Frame type | Fields populated |
+|-----------|-----------------|
+| `ACK` | `type`, `messageId`, `messageClientId`, `status` |
+| `CHAT` | `type`, `messageId`, `chatId`, `senderId`, `senderDisplayName`, `content`, `messageType`, `status`, `messageClientId`, `createdAt` |
+| `DELIVERY` | Same as `CHAT` |
+| `STATUS_UPDATE` | `type`, `messageId`, `newStatus` |
+| `PING` | `type` only |
+| `PONG` | `type` only |
+| `ERROR` | `type`, `errorCode`, `errorMessage` |
+
+### `entity/Chat.java`
+
+JPA entity for the `chat` table. **Every chat is tied to a marketplace listing** (`listingId` is mandatory). Canonical ordering: `participantOne.id < participantTwo.id` enforced by code and DB CHECK constraint.
+
+### `entity/Message.java`
+
+JPA entity for the `message` table. Immutable once persisted — only `status` may change.
+
+### `entity/MessageStatus.java`
 
 ```
-Server                              Client
-  │                                   │
-  │  (every 30s)                      │
-  │── { type:PING } ─────────────────►│
-  │◄── { type:PONG } ─────────────────│
-  │   recordPong() → reset missedCount │
-  │                                   │
-  │  (if 2 missed PINGs)              │
-  │   → close session                 │
-  │   → evict from SessionManager     │
+SENT      → saved in DB; receiver has not received it yet (or is offline)
+DELIVERED → frame sent to receiver's active WebSocket session
+READ      → receiver sent READ_RECEIPT; all their DELIVERED messages in this chat are READ
 ```
 
-### Disconnection
+### `entity/WsMessageType.java`
 
 ```
-Client                              Server
-  │── close frame ───────────────────►│
-  │                                   │  afterConnectionClosed()
-  │                                   │    → SessionManager.remove(userId)
-  │                                   │    → RateLimiter.removeUser(userId)
+CHAT          Client → Server   Send a message
+READ_RECEIPT  Client → Server   User has read all messages in a chat (requires chatId)
+ACK           Server → Client   Server confirms CHAT receipt; includes messageId + status
+DELIVERY      Server → Client   Delivers an offline (SENT) message to a reconnected user
+STATUS_UPDATE Server → Client   Message status changed: DELIVERED or READ (sent to sender)
+PING          Server → Client   Heartbeat probe (every 30 s)
+PONG          Client → Server   Heartbeat reply
+ERROR         Server → Client   Error notification
 ```
+
+### `repository/ChatRepository.java`
+
+| Method | Purpose |
+|--------|---------|
+| `findByParticipantsAndListing(p1, p2, listingId)` | Look up chat by both participants + listing |
+| `findAllByParticipant(userId)` | All chats for a user, sorted by `lastMessageAt DESC NULLS LAST` |
+| `isParticipant(chatId, userId)` | Authorization check |
+
+### `repository/MessageRepository.java`
+
+| Method | Purpose |
+|--------|---------|
+| `findAllByChatIdOrderByCreatedAtDesc(chatId, pageable)` | Paginated message history |
+| `findUndeliveredForUser(chatId, userId)` | SENT/DELIVERED messages in one chat |
+| `findAllUndeliveredForUser(userId)` | All SENT messages across all chats — used on reconnect |
+| `findBySenderIdAndMessageClientId(senderId, clientId)` | Deduplication check |
+| `bulkUpdateStatus(chatId, userId, from, to)` | Bulk status transition |
+| `countUnreadByChatIds(userId, chatIds)` | **Batch** unread count per chat — eliminates N+1 in `listChats()` |
+| `countUndeliveredForUser(chatId, userId)` | Single-chat COUNT — used by `openOrGetChat()` |
+| `findDeliveredMessagesForReader(chatId, userId)` | DELIVERED messages to mark READ; JOIN FETCHes sender for STATUS_UPDATE fan-out |
+
+### `service/ChatService.java`
+
+| Method | Triggered by |
+|--------|-------------|
+| `openOrGetChat(currentUserId, otherUserId, listingId)` | `POST /api/v1/chats` |
+| `listChats(currentUserId)` | `GET /api/v1/chats` |
+| `processMessage(senderProfileId, inbound)` | WebSocket `CHAT` frame |
+| `getMessages(chatId, currentUserId, pageable)` | `GET /api/v1/chats/{id}/messages` |
+| `markRead(chatId, userId)` | WebSocket `READ_RECEIPT` frame |
+| `markDelivered(chatId, userId)` | Internal |
+| `deliverOfflineMessages(userId, keycloakUserId)` | On WebSocket connection establishment |
+
+### `service/impl/ChatServiceImpl.java`
+
+- **`openOrGetChat`**: validates `listingId` not null + `listingRepository.existsById()`, canonical lookup, creates chat if missing
+- **`processMessage`**: size → membership → dedup → persist → update lastMessageAt → live delivery
+- **`markRead`**: loads DELIVERED messages sent by other user, marks them READ, sends `STATUS_UPDATE { READ }` to each message's sender (all their devices)
+- **`deliverOfflineMessages`**: delivers SENT messages as DELIVERY frames on reconnect, then sends `STATUS_UPDATE { DELIVERED }` to each sender
+- **`listChats`**: batch unread count via single `GROUP BY` query — no N+1
+- **Metrics**: 5 counters including `chat.messages.read` + 1 timer
+
+### `websocket/ChatHandshakeInterceptor.java`
+
+Validates JWT at WebSocket upgrade. Token from `Authorization: Bearer` header or `?token=` query param. Stores Keycloak `sub` in session attributes.
+
+### `websocket/ChatSessionManager.java`
+
+**Multi-device support** — maps each userId to a `CopyOnWriteArrayList<WebSocketSession>`.
+
+- `register(userId, session)` — adds session; **never closes existing sessions**
+- `remove(userId, session)` — removes specific session; cleans up user entry when list is empty
+- `sendToUser(userId, message)` — fans out to **all open sessions**; per-session locks; returns `true` if at least one received it
+- `recordPong(session)` — resets missed heartbeats on the **specific session** that replied
+- `isOnline(userId)` — true if any session is open
+- **Heartbeat**: each session tracked independently; evicts only the unresponsive session
+
+### `websocket/ChatWebSocketHandler.java`
+
+Frame routing:
+
+| Frame | Action |
+|-------|--------|
+| `PING` | Send `PONG` immediately |
+| `PONG` | `sessionManager.recordPong(session)` — per-session |
+| `READ_RECEIPT` | `chatService.markRead(chatId, userId)` |
+| `CHAT` | Rate-limit → `chatService.processMessage()` → ACK to all sender's devices |
+| other | `ERROR { UNKNOWN_TYPE }` |
+
+`@Scheduled(fixedRate = 1000)` — rate-limiter refill every **1 second** (matches `messages-per-second` config).
+
+On disconnect: removes only the specific session; removes rate-limiter bucket only when last session disconnects.
+
+### `websocket/MessageRateLimiter.java`
+
+Token-bucket per-user (shared across all devices). Default 10 CHAT frames/second. Refilled every 1 second. Only CHAT frames are counted; PING/PONG/READ_RECEIPT are exempt.
 
 ---
 
-## 5. Database Schema
+## 4. Data Model — Entities & Enums
 
-### `chat` table
+### Chat
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `BIGINT` | PK, auto-increment | Chat identifier |
+| `participant_one` | `BIGINT` | FK → `user_profile`, NOT NULL | Lower user_profile.id |
+| `participant_two` | `BIGINT` | FK → `user_profile`, NOT NULL | Higher user_profile.id |
+| `listing_id` | `BIGINT` | NOT NULL | Linked marketplace listing (**mandatory**) |
+| `last_message_at` | `TIMESTAMPTZ` | Nullable | Timestamp of most recent message |
+| `is_deleted` | `BOOLEAN` | DEFAULT FALSE | Soft-delete flag |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | Audit timestamps |
+| `created_by` / `updated_by` | `VARCHAR(255)` | Audit | Keycloak user IDs |
+
+### Message
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `BIGINT` | PK, auto-increment | Message identifier |
+| `chat_id` | `BIGINT` | FK → `chat`, NOT NULL | Parent conversation |
+| `sender_id` | `BIGINT` | FK → `user_profile`, NOT NULL | Who sent it |
+| `content` | `TEXT` | Nullable | Message body |
+| `message_type` | `VARCHAR(20)` | NOT NULL DEFAULT 'TEXT' | `TEXT` / `IMAGE` / `FILE` |
+| `status` | `VARCHAR(20)` | NOT NULL DEFAULT 'SENT' | `SENT` / `DELIVERED` / `READ` |
+| `message_client_id` | `VARCHAR(64)` | NOT NULL, UNIQUE with sender | Client idempotency key |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Immutable creation time |
+
+---
+
+## 5. Database Schema — Full DDL + Constraints + Indexes
+
+### Tables
 
 ```sql
 CREATE TABLE chat (
     id               BIGINT      GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    participant_one  BIGINT      NOT NULL,  -- lower user_profile.id
-    participant_two  BIGINT      NOT NULL,  -- higher user_profile.id
-    listing_id       BIGINT,               -- optional marketplace listing
+    participant_one  BIGINT      NOT NULL,
+    participant_two  BIGINT      NOT NULL,
+    listing_id       BIGINT      NOT NULL,    -- mandatory: every chat originates from a listing
     last_message_at  TIMESTAMPTZ,
-    -- BaseEntity audit columns
     is_deleted       BOOLEAN     NOT NULL DEFAULT FALSE,
+    deleted_at       TIMESTAMPTZ,
+    deleted_by       VARCHAR(255),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ...
+    created_by       VARCHAR(255),
+    updated_by       VARCHAR(255)
 );
 
--- Constraints
-UNIQUE (participant_one, participant_two, listing_id)
-CHECK  (participant_one < participant_two)             -- canonical ordering
-FK     participant_one → user_profile(id)
-FK     participant_two → user_profile(id)
-
--- Indexes
-idx_chat_participant_one
-idx_chat_participant_two
-idx_chat_last_message_at  ON (participant_one, last_message_at DESC)
-idx_chat_listing          ON (listing_id) WHERE listing_id IS NOT NULL
-```
-
-**Design decision — canonical ordering:**
-The application always stores `min(userId, otherUserId)` as `participant_one`. This guarantees that looking up "does a chat exist between users A and B?" is a single equality query with no OR condition, and the UNIQUE constraint works correctly regardless of which user initiates.
-
-### `message` table
-
-```sql
 CREATE TABLE message (
     id                  BIGINT      GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     chat_id             BIGINT      NOT NULL,
@@ -235,281 +391,454 @@ CREATE TABLE message (
     message_client_id   VARCHAR(64) NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Constraints
-FK     chat_id   → chat(id)
-FK     sender_id → user_profile(id)
-UNIQUE (sender_id, message_client_id)                 -- deduplication
-
--- Indexes
-idx_message_chat_created_at  ON (chat_id, created_at DESC)  -- timeline
-idx_message_undelivered      ON (chat_id, status) WHERE status IN ('SENT','DELIVERED')
-idx_message_sender           ON (sender_id)
 ```
 
-**Design decision — no soft delete on messages:**
-Messages are immutable records. Deleting a message is a future feature (Phase 2) that would use a `deleted_for_sender` / `deleted_for_receiver` flag rather than a global `is_deleted`, to match real messaging UX.
+### Constraints
+
+```sql
+ALTER TABLE chat ADD CONSTRAINT fk_chat_participant_one
+    FOREIGN KEY (participant_one) REFERENCES user_profile (id);
+
+ALTER TABLE chat ADD CONSTRAINT fk_chat_participant_two
+    FOREIGN KEY (participant_two) REFERENCES user_profile (id);
+
+-- listing_id is always non-null → unique constraint reliably prevents duplicate chats
+ALTER TABLE chat ADD CONSTRAINT uq_chat_participants_listing
+    UNIQUE (participant_one, participant_two, listing_id);
+
+ALTER TABLE chat ADD CONSTRAINT chk_chat_participant_order
+    CHECK (participant_one < participant_two);
+
+ALTER TABLE message ADD CONSTRAINT fk_message_chat
+    FOREIGN KEY (chat_id) REFERENCES chat (id);
+
+ALTER TABLE message ADD CONSTRAINT fk_message_sender
+    FOREIGN KEY (sender_id) REFERENCES user_profile (id);
+
+ALTER TABLE message ADD CONSTRAINT uq_message_client_id
+    UNIQUE (sender_id, message_client_id);  -- deduplication guard
+```
+
+### Indexes
+
+```sql
+CREATE INDEX idx_chat_participant_one    ON chat (participant_one);
+CREATE INDEX idx_chat_participant_two    ON chat (participant_two);
+CREATE INDEX idx_chat_last_message_at   ON chat (participant_one, last_message_at DESC);
+CREATE INDEX idx_chat_listing           ON chat (listing_id);
+
+CREATE INDEX idx_message_chat_created_at ON message (chat_id, created_at DESC);
+CREATE INDEX idx_message_undelivered     ON message (chat_id, status)
+    WHERE status IN ('SENT', 'DELIVERED');
+CREATE INDEX idx_message_sender          ON message (sender_id);
+```
 
 ---
 
-## 6. Message State Lifecycle
+## 6. Message Formats — Every WebSocket Frame
 
-```
-                    ┌─────────────────────────────┐
-                    │         SENT                │
-                    │  (persisted, receiver       │
-                    │   offline or not yet ack'd) │
-                    └──────────────┬──────────────┘
-                                   │ receiver connects / message delivered via WebSocket
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │        DELIVERED            │
-                    │  (frame sent to receiver's  │
-                    │   active WebSocket session) │
-                    └──────────────┬──────────────┘
-                                   │ receiver opens the chat (Phase 2)
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │          READ               │
-                    │  (receiver has seen the     │
-                    │   message in the UI)        │
-                    └─────────────────────────────┘
-```
+### Frames sent by the CLIENT
 
-| Transition | Trigger |
-|---|---|
-| → `SENT` | Message persisted to DB |
-| `SENT` → `DELIVERED` | Live WebSocket delivery succeeds, OR user reconnects and offline messages are pushed |
-| `DELIVERED` → `READ` | Phase 2: client sends a read receipt frame |
-
----
-
-## 7. Offline Message Handling
-
-When the receiver is **offline** at the time a message is sent:
-
-1. The message is persisted with `status = SENT`
-2. `ChatSessionManager.isOnline(receiverId)` returns `false` — no delivery attempted
-3. Message sits in the DB indexed by `idx_message_undelivered`
-
-When the receiver **reconnects**:
-
-1. `ChatWebSocketHandler.afterConnectionEstablished()` fires
-2. `ChatService.deliverOfflineMessages(userId, keycloakUserId)` is called
-3. All messages where `status IN ('SENT')` and the user is a participant are loaded (ordered by `created_at ASC`)
-4. Each message is pushed as a `DELIVERY` frame over the new WebSocket session
-5. Successfully delivered messages are bulk-updated to `status = DELIVERED`
-
----
-
-## 8. Duplicate Message Prevention
-
-Every message sent by a client must include a `messageClientId` — a UUID-v4 generated by the client before sending.
-
-**Two-layer protection:**
-
-| Layer | Mechanism |
-|---|---|
-| Application | `MessageRepository.findBySenderIdAndMessageClientId()` — explicit check before insert |
-| Database | `UNIQUE (sender_id, message_client_id)` — catches race conditions where two identical frames arrive simultaneously and the app-level check races |
-
-If a duplicate is detected, the server responds with `ERROR { errorCode: "MESSAGE_ERROR", errorMessage: "Duplicate message: <clientId>" }`. The client should treat this as a successful send (the original already persisted).
-
----
-
-## 9. Heartbeat Mechanism
-
-### Flow
-
-```
-ChatSessionManager
-  └── ScheduledExecutorService (single daemon thread "ws-heartbeat")
-        └── pingAllSessions() — fires every heartbeatIntervalSeconds
-              │
-              ├── For each session: increment missedHeartbeats counter
-              ├── Send { type: PING } frame
-              │
-              └── If missedHeartbeats >= maxMissedHeartbeats:
-                    → closeQuietly(session)
-                    → evict(userId) from sessions + locks maps
-```
-
-### Configuration
-
-```properties
-chat.websocket.heartbeat-interval-seconds=30
-chat.websocket.max-missed-heartbeats=2
-```
-
-With defaults: a session is evicted after **60 seconds** of silence (2 × 30s).
-
-When the client receives a `PING`, it must respond with `{ type: "PONG" }`. On receipt of a PONG, `ChatSessionManager.recordPong()` resets the missed counter to 0.
-
----
-
-## 10. Rate Limiting
-
-A **token-bucket** algorithm is used, implemented without any external dependency.
-
-### How it works
-
-1. Each user starts with `messagesPerSecond` tokens (default: 10)
-2. Each CHAT frame consumes 1 token via `MessageRateLimiter.tryConsume(userId)`
-3. If the bucket is empty → the frame is rejected with `ERROR { errorCode: "RATE_LIMITED" }`
-4. `ChatWebSocketHandler` has a `@Scheduled(fixedRate = 1000)` method that calls `rateLimiter.refillAll()` every second, restoring all buckets to max
-
-### Configuration
-
-```properties
-chat.rate-limit.messages-per-second=10
-```
-
-PING/PONG frames are **not** rate-limited — only CHAT frames consume tokens.
-
----
-
-## 11. Message Size Limits
-
-Text message `content` is validated in `ChatServiceImpl.processMessage()`:
-
-```java
-if (content.getBytes().length > props.getMaxMessageSizeBytes()) {
-    throw new BadRequestException("Message exceeds maximum allowed size");
-}
-```
-
-Default: **5120 bytes (5 KB)**. Configure via:
-
-```properties
-chat.message.max-size-bytes=5120
-```
-
-Oversized messages are rejected with an `ERROR` frame before any DB access.
-
----
-
-## 12. Security
-
-### WebSocket authentication
-
-Spring Security's `SessionCreationPolicy.STATELESS` does not protect WebSocket upgrades by default. Authentication is handled explicitly in `ChatHandshakeInterceptor`:
-
-1. Extract JWT from `Authorization: Bearer <token>` header or `?token=<JWT>` query param
-2. Decode and validate via the existing `JwtDecoder` bean (same JWKS endpoint as the REST API)
-3. Store the Keycloak `sub` (userId) in the session attributes
-4. Return `false` from `beforeHandshake()` to reject unauthenticated upgrades → HTTP 403
-
-**The `/ws/chat` path is added to `SecurityConfig.PUBLIC_PATHS`** — this is intentional and correct. Spring Security's HTTP filter chain sees the initial GET request as "unauthenticated" because there's no `Authorization` header in standard browser WebSocket upgrade requests; the token is passed as a query param instead. The interceptor performs all authentication.
-
-### Chat membership enforcement
-
-Every inbound CHAT frame validates `ChatRepository.isParticipant(chatId, senderProfileId)` before processing. An `UnauthorizedException` is thrown if the sender is not a participant.
-
----
-
-## 13. REST APIs
-
-### `POST /api/v1/chats`
-Open or retrieve an existing chat with another user.
-
-**Request:**
+#### `CHAT` — Send a message
 ```json
 {
-  "otherUserId": 5,
-  "listingId": 12
+  "type": "CHAT",
+  "chatId": 42,
+  "messageClientId": "550e8400-e29b-41d4-a716-446655440000",
+  "messageType": "TEXT",
+  "content": "Is this car still available?"
 }
 ```
 
-**Response:**
+#### `READ_RECEIPT` — Notify server that the user has read all messages in a chat
 ```json
 {
-  "id": 1,
-  "otherUserId": 5,
-  "otherUserDisplayName": "John Doe",
-  "listingId": 12,
-  "lastMessageAt": "2026-03-13T10:00:00Z",
-  "unreadCount": 3
+  "type": "READ_RECEIPT",
+  "chatId": 42
 }
 ```
+- Send whenever the user **opens** a chat screen or reaches the bottom of the message list.
+- The server marks all `DELIVERED` messages in the chat (sent by the other user) as `READ`, then sends `STATUS_UPDATE { newStatus: "READ" }` to each original sender.
+- No `ACK` is returned to the reader.
+- Not rate-limited.
+- Idempotent — safe to call multiple times.
 
----
-
-### `GET /api/v1/chats`
-List all chats for the current user, sorted by most recent message.
-
----
-
-### `GET /api/v1/chats/{chatId}/messages?page=0&size=30`
-Paginated message history, newest first.
-
-**Response:**
+#### `PONG` — Heartbeat reply
 ```json
-{
-  "content": [
-    {
-      "id": 99,
-      "chatId": 1,
-      "senderId": 3,
-      "senderDisplayName": "Alice",
-      "content": "Is this still available?",
-      "messageType": "TEXT",
-      "status": "DELIVERED",
-      "messageClientId": "550e8400-e29b-41d4-a716-446655440000",
-      "createdAt": "2026-03-13T10:01:00Z"
-    }
-  ],
-  "totalElements": 42,
-  "totalPages": 2,
-  "size": 30,
-  "number": 0
-}
+{ "type": "PONG" }
 ```
+Must be sent immediately upon receiving a server `PING`.
 
----
-
-### WebSocket Frame Examples
-
-**Send a message:**
-```json
-{ "type": "CHAT", "chatId": 1, "messageClientId": "uuid-v4", "messageType": "TEXT", "content": "Hello!" }
-```
-
-**ACK from server:**
-```json
-{ "type": "ACK", "messageId": 99, "messageClientId": "uuid-v4", "status": "DELIVERED" }
-```
-
-**Heartbeat ping from server:**
+#### `PING` — Client-initiated heartbeat (optional)
 ```json
 { "type": "PING" }
 ```
 
-**Client pong:**
+---
+
+### Frames sent by the SERVER
+
+#### `ACK` — Confirms message was processed
+```json
+{
+  "type": "ACK",
+  "messageId": 99,
+  "messageClientId": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "DELIVERED"
+}
+```
+Sent to **all of the sender's connected devices**. `status` is `DELIVERED` if receiver was online; `SENT` if offline.
+
+#### `CHAT` — Incoming message
+```json
+{
+  "type": "CHAT",
+  "messageId": 99,
+  "chatId": 42,
+  "senderId": 3,
+  "senderDisplayName": "Alice",
+  "content": "Is this car still available?",
+  "messageType": "TEXT",
+  "status": "DELIVERED",
+  "messageClientId": "550e8400-e29b-41d4-a716-446655440000",
+  "createdAt": "2026-04-12T10:00:00Z"
+}
+```
+Sent to **all of the receiver's connected devices**.
+
+#### `DELIVERY` — Offline message delivered on reconnect
+Identical structure to `CHAT` but `type = "DELIVERY"`. Multiple frames may arrive in rapid succession.
+
+#### `STATUS_UPDATE` — Message status changed
+```json
+{
+  "type": "STATUS_UPDATE",
+  "messageId": 99,
+  "newStatus": "READ"
+}
+```
+Sent to the **original sender** (all their devices):
+- `newStatus = "DELIVERED"`: receiver's device received the message (after reconnect).
+- `newStatus = "READ"`: receiver opened the chat and sent `READ_RECEIPT`.
+
+#### `PING` — Server heartbeat probe
+```json
+{ "type": "PING" }
+```
+Sent every 30 seconds to each session individually.
+
+#### `PONG` — Server reply to client PING
 ```json
 { "type": "PONG" }
 ```
 
-**Error from server:**
+#### `ERROR` — Server-side error
 ```json
-{ "type": "ERROR", "errorCode": "RATE_LIMITED", "errorMessage": "Too many messages. Slow down." }
+{
+  "type": "ERROR",
+  "errorCode": "RATE_LIMITED",
+  "errorMessage": "Too many messages. Slow down."
+}
+```
+
+| `errorCode` | Cause | Client action |
+|-------------|-------|---------------|
+| `AUTH_ERROR` | Keycloak user ID missing | Reconnect with valid token |
+| `PARSE_ERROR` | Invalid JSON | Fix JSON; re-send |
+| `RATE_LIMITED` | >10 CHAT frames/second | Back off 1–2 s; retry with same `messageClientId` |
+| `MESSAGE_ERROR` | Membership / size / duplicate / missing chatId | Read `errorMessage` |
+| `USER_NOT_FOUND` | Sender's profile not in DB | Refresh app |
+| `UNKNOWN_TYPE` | Unsupported `type` value | Fix client code |
+
+---
+
+## 7. REST API — Full Reference
+
+All endpoints require `Authorization: Bearer <JWT>`.
+
+### `POST /api/v1/chats`
+
+**Request:**
+```json
+{ "otherUserId": 5, "listingId": 12 }
+```
+
+Both fields are **required**. Idempotent — same pair+listing always returns the same chat.
+
+**Response:** `200 OK` with `ChatResponse`.
+
+**Errors:**
+- `400` — `otherUserId` equals caller ID, or `listingId` missing
+- `404` — listing or user not found
+
+---
+
+### `GET /api/v1/chats`
+
+Returns all conversations sorted by `lastMessageAt DESC NULLS LAST`.  
+Unread counts resolved via single batch query (no N+1).
+
+---
+
+### `GET /api/v1/chats/{chatId}/messages?page=0&size=30`
+
+Paginated history, newest first. Returns `Page<MessageResponse>`.
+
+**Errors:** `401` if caller is not a participant.
+
+---
+
+## 8. Message State Lifecycle
+
+```
+Client sends CHAT ──►  ┌──────────┐
+                        │  SENT    │  persisted in DB; receiver not yet reached
+                        └────┬─────┘
+                             │
+              ┌──────────────┴───────────────┐
+              │ Receiver online               │ Receiver reconnects later
+              ▼                               ▼
+         ┌──────────┐                   ┌──────────┐
+         │ DELIVERED│ ◄── live WS       │ DELIVERED│ ◄── DELIVERY frame on reconnect
+         │          │     ACK(DELIVERED) │          │     STATUS_UPDATE(DELIVERED)→sender
+         └────┬─────┘  →ender           └────┬─────┘
+              │                              │
+              └──────────────┬───────────────┘
+                             │  Receiver sends READ_RECEIPT
+                             ▼
+                        ┌──────────┐
+                        │   READ   │  STATUS_UPDATE(READ) → sender (all devices)
+                        └──────────┘
+```
+
+| Transition | Trigger | Where |
+|-----------|---------|-------|
+| → `SENT` | `messageRepository.save()` | `processMessage()` |
+| `SENT` → `DELIVERED` | Live WS delivery success | `processMessage()` |
+| `SENT` → `DELIVERED` | Receiver reconnects | `deliverOfflineMessages()` |
+| `DELIVERED` → `READ` | Receiver sends `READ_RECEIPT` | `markRead()` |
+
+---
+
+## 9. Complete End-to-End Flows
+
+### 9.1 First-Time Chat (from Marketplace Listing)
+
+```
+User B (Buyer)                   Backend                    User A (Seller)
+     │                              │                              │
+     │  POST /api/v1/chats          │                              │
+     │  { otherUserId: A,           │                              │
+     │    listingId: 42 }           │                              │
+     │ ─────────────────────────►   │                              │
+     │                              │  1. listingRepository.existsById(42) ✅
+     │                              │  2. findByParticipantsAndListing → not found
+     │                              │  3. create Chat { listing_id: 42 }
+     │ ◄─── 200 { id:1, unread:0 }  │
 ```
 
 ---
 
-## 14. Metrics and Observability
+### 9.2 Send a Message — Both Users Online
 
-All metrics are exposed via Micrometer and scraped by Prometheus at `/actuator/prometheus`.
+```
+Sender (A)               Backend                    Receiver (B)
+   │                        │                    [phone]   [tablet]
+   │  CHAT frame            │                       │         │
+   │ ──────────────────────►│                       │         │
+   │                        │  persist, deliver     │         │
+   │                        │ ─────────────────────►│         │  CHAT frame to phone
+   │                        │ ──────────────────────────────► │  CHAT frame to tablet
+   │ ◄── ACK{DELIVERED}     │
+```
+
+---
+
+### 9.3 Send a Message — Receiver Offline
+
+```
+Sender (A)               Backend                    Receiver (B)
+   │                        │                          (offline)
+   │  CHAT frame            │
+   │ ──────────────────────►│
+   │                        │  no sessions for B → false
+   │ ◄── ACK{SENT}          │  message stays SENT
+```
+
+---
+
+### 9.4 Receiver Reconnects — Offline Delivery + STATUS_UPDATE to Sender
+
+```
+Receiver (B)             Backend                    Sender (A)
+     │                      │                           │
+     │  WS connect          │                           │
+     │ ─────────────────────►                           │
+     │                      │  deliverOfflineMessages() │
+     │ ◄── DELIVERY{msg202} │                           │
+     │                      │  msg202.status = DELIVERED│
+     │                      │  saveAll()                │
+     │                      │                           │
+     │                      │  sendToUser(keycloak_A,   │
+     │                      │   STATUS_UPDATE{          │
+     │                      │    messageId:202,         │
+     │                      │    newStatus:DELIVERED}) ►│
+     │                      │                           │  A's UI: ✓ → ✓✓
+```
+
+---
+
+### 9.5 Read Receipt Flow
+
+```
+Receiver (B)             Backend                    Sender (A)
+     │                      │                           │
+     │  (opens chat)        │                           │
+     │  READ_RECEIPT{42}    │                           │
+     │ ─────────────────────►                           │
+     │                      │  markRead(chatId=42, B):  │
+     │                      │  findDeliveredMessages    │
+     │                      │    → [201, 203]           │
+     │                      │  status = READ, saveAll() │
+     │                      │                           │
+     │                      │  STATUS_UPDATE{201,READ} ►│
+     │                      │  STATUS_UPDATE{203,READ} ►│
+     │                      │                           │  A's UI: ✓✓ → ✓✓(blue)
+     │
+     │  (no ACK back to B — fire and forget)
+```
+
+---
+
+### 9.6 Load Message History (Pagination)
+
+```
+GET /api/v1/chats/{chatId}/messages?page=0&size=30
+→ isParticipant() check
+→ findAllByChatIdOrderByCreatedAtDesc → 30 newest
+← Page<MessageResponse> (newest first — reverse for display)
+
+Scroll to top → page=1 → prepend older messages
+Stop when response.last == true
+```
+
+---
+
+### 9.7 Heartbeat / Keep-Alive
+
+```
+Server pings every 30s per session:
+
+Server                    Client (phone)         Client (tablet)
+  │── PING ──────────────►│                            │
+  │── PING ────────────────────────────────────────────►│
+  │◄── PONG ─────────────│  (resets missed=0 for phone session)
+  │◄── PONG ────────────────────────────────────────────│  (resets missed=0 for tablet)
+```
+
+---
+
+### 9.8 Session Eviction (missed heartbeats)
+
+Each session tracks missed heartbeats independently. One device going offline does not affect others.
+
+```
+Phone session misses 2 PINGs (60s) → evict phone session only
+Tablet session: unaffected
+sessions[user] = [session_tablet]  (phone removed)
+```
+
+---
+
+### 9.9 Rate-Limit Rejection
+
+```
+User sends 11th CHAT within 1 second:
+← ERROR { RATE_LIMITED }
+Wait ~1s → retry with SAME messageClientId → succeeds
+```
+
+Rate limit = 10 CHAT frames/second shared across all devices of the same user.
+
+---
+
+### 9.10 Duplicate Message Rejection
+
+```
+Client sends CHAT with clientId="X" → saved, ACK sent
+Client retries same clientId="X":
+← ERROR { MESSAGE_ERROR, "Duplicate message: X" }
+Client: treat as success (already in DB)
+```
+
+---
+
+### 9.11 Multi-Device Login
+
+```
+Phone connects:   sessions[user_A] = [session_phone]
+Browser connects: sessions[user_A] = [session_phone, session_browser]
+                  (phone NOT closed)
+
+Message arrives for A:
+  sendToUser(A) → session_phone.send() + session_browser.send()
+
+Phone disconnects:
+  sessions[user_A] = [session_browser]
+  rate limiter bucket KEPT (browser still active)
+
+Browser disconnects (last session):
+  sessions.remove(user_A)
+  rateLimiter.removeUser(user_A)
+```
+
+---
+
+### 9.12 WebSocket Token Expiry & Reconnect
+
+```
+1. JWT expires mid-session (server keeps accepting — token checked at handshake only)
+2. Client detects expiry or gets 403 on reconnect attempt
+3. Refresh via Keycloak /token
+4. Reconnect with new JWT → DELIVERY frames catch up missed messages
+```
+
+---
+
+## 10. Safety & Reliability Features
+
+| Feature | Implementation | Config |
+|---------|---------------|--------|
+| **JWT auth at WS upgrade** | `ChatHandshakeInterceptor` → 403 on failure | — |
+| **Membership enforcement** | `isParticipant()` on CHAT and READ_RECEIPT frames | — |
+| **listingId mandatory** | `@NotNull` + `listingRepository.existsById()` | — |
+| **Message deduplication** | App check + DB UNIQUE `(sender_id, message_client_id)` | — |
+| **Rate limiting** | Token-bucket 10/s per user (all devices); PING/PONG/READ_RECEIPT exempt | `messages-per-second` |
+| **Message size limit** | Byte check before DB access | `max-size-bytes` |
+| **Heartbeat / eviction** | Per-session PING; evict after 2 missed per session | `heartbeat-interval-seconds` |
+| **Thread-safe delivery** | Per-session lock in `sendToSession()` | — |
+| **Offline message recovery** | DELIVERY frames on reconnect | — |
+| **Read receipts** | `READ_RECEIPT` → DELIVERED→READ → STATUS_UPDATE to sender | — |
+| **STATUS_UPDATE on delivery** | After offline delivery, notify senders | — |
+| **N+1 prevention** | `listChats()` uses single `GROUP BY` for unread counts | — |
+| **Race condition prevention** | `DataIntegrityViolationException` caught as duplicate error | — |
+| **Multi-device fan-out** | All devices receive messages; per-session heartbeat tracking | — |
+| **Canonical chat ordering** | `participant_one < participant_two` in code + DB CHECK | — |
+| **Chat soft-delete** | `@SQLRestriction("is_deleted = false")` on `Chat` entity | — |
+
+---
+
+## 11. Metrics & Observability
 
 | Metric | Type | Description |
-|---|---|---|
-| `chat.websocket.active_connections` | Gauge | Current number of open WebSocket sessions |
-| `chat.messages.sent` | Counter | Total messages successfully persisted |
-| `chat.messages.delivered` | Counter | Total messages delivered live over WebSocket |
+|--------|------|-------------|
+| `chat.websocket.active_connections` | Gauge | Total open WS sessions (all users, all devices) |
+| `chat.messages.sent` | Counter | Messages persisted |
+| `chat.messages.delivered` | Counter | Messages delivered live |
+| `chat.messages.read` | Counter | Messages marked READ via READ_RECEIPT |
 | `chat.messages.duplicate_rejected` | Counter | Duplicate frames rejected |
-| `chat.websocket.errors` | Counter | Total WebSocket handler errors |
-| `chat.delivery.latency` | Timer | Duration from message persist to live delivery |
-
-**Grafana dashboard queries (PromQL):**
+| `chat.websocket.errors` | Counter | Handler errors |
+| `chat.delivery.latency` | Timer | persist → sendToUser() |
 
 ```promql
 # Active connections
@@ -518,8 +847,11 @@ chat_websocket_active_connections
 # Messages per second
 rate(chat_messages_sent_total[1m])
 
-# Delivery rate
-rate(chat_messages_delivered_total[1m])
+# Live delivery rate
+rate(chat_messages_delivered_total[1m]) / rate(chat_messages_sent_total[1m])
+
+# Read rate
+rate(chat_messages_read_total[5m]) / rate(chat_messages_sent_total[5m])
 
 # p99 delivery latency
 histogram_quantile(0.99, rate(chat_delivery_latency_seconds_bucket[5m]))
@@ -527,87 +859,215 @@ histogram_quantile(0.99, rate(chat_delivery_latency_seconds_bucket[5m]))
 
 ---
 
-## 15. Attachment Support (Phase 2)
+## 12. Client Responsibilities
 
-The schema is already prepared. `message_type` supports `TEXT | IMAGE | FILE`.
+### 12.1 Authentication & Token Management
 
-**Planned Phase 2 flow:**
+```
+1. Obtain JWT via Keycloak OIDC (Authorization Code + PKCE)
+2. Store securely: Keychain (iOS), EncryptedSharedPreferences (Android), httpOnly cookie (Web)
+3. REST: Authorization: Bearer <access_token>
+4. WebSocket: ws://host/ws/chat?token=<access_token>  (or Authorization header for native)
+5. Before reconnect: check exp claim → refresh if expired → never reconnect with expired token
+6. If refresh token expired: redirect to login
+```
 
-1. Client uploads file via `POST /api/v1/attachments` (existing attachment module)
-2. Server returns `attachmentId`
-3. Client sends WS frame: `{ type: "CHAT", messageType: "IMAGE", content: "<attachmentId>" }`
-4. Server resolves the attachment record and includes the storage URL in the outbound frame
+### 12.2 Opening a Chat
 
-Attachment storage uses the existing `AttachmentService` which supports both local and S3 backends via the `attachment.storage.provider` property.
+```
+Every chat MUST originate from a marketplace listing.
+
+1. User taps "Contact Seller" on listing ID=42
+2. POST /api/v1/chats  { "otherUserId": <seller_id>, "listingId": 42 }
+3. Store returned chatId
+4. Navigate to chat screen
+5. Load history: GET /api/v1/chats/{chatId}/messages?page=0&size=30
+6. Send READ_RECEIPT: { "type": "READ_RECEIPT", "chatId": <chatId> }
+
+Errors:
+  400 → listingId missing or invalid request
+  404 → listing does not exist (deleted/expired) — show error to user
+```
+
+### 12.3 WebSocket Connection Management
+
+```
+1. Connect: ws://host/ws/chat?token=<JWT>
+2. On connect: process any DELIVERY frames → send READ_RECEIPT for open chat
+3. On disconnect: exponential backoff (1s × 2^attempt, max 30s) → refresh token → reconnect
+4. Multi-device: all devices connect independently — no conflict
+5. On app foreground: reconnect if needed; GET /api/v1/chats to sync counts
+```
+
+### 12.4 Sending Messages
+
+```
+1. Generate UUID-v4 as messageClientId (use proper library, never reuse)
+2. Optimistic UI: show message as "pending"
+3. Send: { "type": "CHAT", "chatId": N, "messageClientId": "<uuid>", "content": "..." }
+4. On ACK { status: DELIVERED } → show ✓✓
+   On ACK { status: SENT }      → show ✓
+5. On STATUS_UPDATE { newStatus: DELIVERED } → update to ✓✓
+   On STATUS_UPDATE { newStatus: READ }      → update to ✓✓(blue) / "Seen"
+6. On disconnect before ACK: queue + retry with SAME uuid after reconnect
+```
+
+### 12.5 Receiving Messages
+
+```
+A. CHAT (live)
+   → Append to message list
+   → If chat NOT open: unread++ / show notification
+   → If chat IS open: send READ_RECEIPT immediately
+
+B. DELIVERY (offline catch-up)
+   → Same as CHAT
+   → If chat IS open: send READ_RECEIPT after processing all DELIVERY frames
+
+C. STATUS_UPDATE { messageId, newStatus }
+   → Find message by messageId in local store
+   → DELIVERED → show ✓✓
+   → READ      → show ✓✓(blue) / "Seen"
+   (This frame comes to the SENDER, not the reader)
+```
+
+### 12.6 Heartbeat Handling
+
+```
+On PING received: immediately send PONG (synchronous, no delay)
+Each session tracked independently: one device missing PINGs won't affect others
+
+Optional client PING: if no server data for >45s → send PING → expect PONG within 10s
+```
+
+### 12.7 Error Handling
+
+```
+AUTH_ERROR     → Refresh JWT, reconnect
+PARSE_ERROR    → Bug in client; do not retry
+RATE_LIMITED   → Wait 1-2s, retry with SAME messageClientId
+MESSAGE_ERROR  (starts with "Duplicate:") → Already saved; treat as success
+MESSAGE_ERROR  (other) → Show error, offer retry
+USER_NOT_FOUND → Log out, contact support
+UNKNOWN_TYPE   → Fix client code
+```
+
+### 12.8 Loading History & Pagination
+
+```
+GET /api/v1/chats/{chatId}/messages?page=0&size=30
+
+Response is NEWEST FIRST — reverse array for display.
+Scroll to top → increment page → prepend older messages.
+Stop when response.last == true.
+```
+
+### 12.9 Unread Counts & Badge Updates
+
+```
+unreadCount = SENT + DELIVERED messages from the other user (READ not counted)
+
+1. On app start: GET /api/v1/chats → read unreadCount per chat
+2. CHAT/DELIVERY for closed chat → localUnread[chatId]++
+3. User opens chat → localUnread[chatId] = 0 → send READ_RECEIPT
+4. App foreground: GET /api/v1/chats to resync
+5. Badge = sum(all localUnread values)
+```
 
 ---
 
-## 16. Configuration Reference
+## 13. Known Gaps & Future Work
 
-```properties
-# Heartbeat interval in seconds (default: 30)
-chat.websocket.heartbeat-interval-seconds=30
+### 13.1 🟠 Missing — Push Notifications (Offline Users)
 
-# Sessions evicted after this many missed heartbeats (default: 2 = 60s)
-chat.websocket.max-missed-heartbeats=2
+A user who stays offline never gets notified of waiting messages. Requires FCM/APNs/Web Push integration.
 
-# Maximum message content size in bytes (default: 5120 = 5 KB)
-chat.message.max-size-bytes=5120
-
-# Max CHAT frames per user per second (default: 10)
-chat.rate-limit.messages-per-second=10
+**Sketch:**
+```
+sendToUser(B, CHAT) returns false:
+  → schedule background job
+  → if B doesn't reconnect in N minutes:
+    → fetch B's push tokens
+    → send FCM/APNs: { title: "Alice", body: "Is this still available?" }
 ```
 
-All values support environment variable substitution:
+### 13.2 ⚪ Missing — Typing Indicators
+
+`TYPING` inbound frame → fan out to other participant's session → never persisted (ephemeral).
+
+### 13.3 ⚪ Edge Case — READ_RECEIPT Before Offline Delivery Completes
+
+`markRead()` transitions `DELIVERED → READ`. If a client sends `READ_RECEIPT` before `deliverOfflineMessages()` finishes, some messages may temporarily remain `DELIVERED`.
+
+**Mitigation:** Client should send `READ_RECEIPT` after receiving all `DELIVERY` frames (wait for end-of-stream signal or short timeout), not immediately on connect.
+
+---
+
+## 14. Configuration Reference
+
+| Property | Env Variable | Default | Description |
+|----------|-------------|---------|-------------|
+| `chat.websocket.heartbeat-interval-seconds` | `CHAT_HEARTBEAT_INTERVAL_SECONDS` | `30` | Seconds between server PING probes |
+| `chat.websocket.max-missed-heartbeats` | `CHAT_MAX_MISSED_HEARTBEATS` | `2` | Per-session eviction threshold |
+| `chat.message.max-size-bytes` | `CHAT_MESSAGE_MAX_SIZE_BYTES` | `5120` | Max message content in bytes (5 KB) |
+| `chat.rate-limit.messages-per-second` | `CHAT_RATE_LIMIT_MESSAGES_PER_SECOND` | `10` | Max CHAT frames/second per user (all devices) |
+
+Eviction time = `heartbeatIntervalSeconds × maxMissedHeartbeats` = 60 s by default.
+
 ```properties
 chat.websocket.heartbeat-interval-seconds=${CHAT_HEARTBEAT_INTERVAL_SECONDS:30}
+chat.websocket.max-missed-heartbeats=${CHAT_MAX_MISSED_HEARTBEATS:2}
+chat.message.max-size-bytes=${CHAT_MESSAGE_MAX_SIZE_BYTES:5120}
+chat.rate-limit.messages-per-second=${CHAT_RATE_LIMIT_MESSAGES_PER_SECOND:10}
 ```
 
 ---
 
-## 17. Scaling Strategy
+## 15. Scaling Strategy
 
-The current implementation stores sessions **in-process memory** (`ConcurrentHashMap`). This is correct and sufficient for a single-server deployment serving up to ~10k concurrent users.
-
-### Multi-server scaling (future)
-
-When horizontal scaling is required, the session store must be externalised:
+### Current: Single-Server
 
 ```
-┌──────────┐    ┌──────────┐
-│ Server 1 │    │ Server 2 │
-│ User A   │    │ User B   │
-└────┬─────┘    └────┬─────┘
-     │               │
-     └───────┬────────┘
-             │
-        ┌────▼────┐
-        │  Redis  │  ← pub/sub channel per userId
-        └─────────┘
+Client A (phone)    ──►  ┌─────────────────────────────┐
+Client A (browser)  ──►  │  Spring Boot (single node)  │
+Client B            ──►  │                             │
+                         │  sessions:                  │
+                         │   A → [phone, browser]      │
+                         │   B → [phone]               │
+                         └─────────────────────────────┘
+                                       │
+                                  PostgreSQL
 ```
 
-**Plan:**
-1. Replace `ConcurrentHashMap<userId, WebSocketSession>` with a Redis pub/sub fanout
-2. When server 1 wants to deliver to User B (connected to server 2):
-   - Publish the message to Redis channel `chat:user:{userId}`
-   - Server 2 is subscribed to that channel and forwards to the local session
-3. Use Spring Data Redis `RedisMessageListenerContainer` for this
+### Future: Multi-Server with Redis Pub/Sub
 
-**No code change required** beyond replacing `ChatSessionManager` — all other components are already session-location agnostic.
+```
+┌──────────────┐           ┌──────────────┐
+│   Server 1   │           │   Server 2   │
+│  User A, C   │           │  User B      │
+└──────┬───────┘           └──────┬───────┘
+       └──────────┬───────────────┘
+                  │
+            ┌─────▼─────┐
+            │   Redis   │  pub/sub per userId
+            └───────────┘
+```
+
+Replace `ConcurrentHashMap` with Redis pub/sub. `sendToUser()` delivers locally or publishes to `chat:user:{keycloakUserId}`. No changes needed to handler, service, or repositories.
 
 ---
 
-## 18. Future Improvements
+## 16. Roadmap
 
-| Feature | Notes |
-|---|---|
-| **Read receipts** | Client sends `{ type: "READ", messageId: N }` → server updates status to `READ`, pushes `STATUS_UPDATE` to sender |
-| **Typing indicators** | Ephemeral — never persisted, just forwarded to the other participant |
-| **Message deletion** | Per-participant soft delete flags (`deleted_for_sender`, `deleted_for_receiver`) |
-| **Group chats** | Requires a `chat_participant` junction table instead of fixed `participant_one/two` |
-| **Message reactions** | New `message_reaction` table linking `message_id + user_id + emoji` |
-| **Push notifications** | When user is offline and stays offline > N minutes, send FCM/APNs push |
-| **Redis session store** | For horizontal scaling (see §17) |
-| **Message search** | PostgreSQL full-text index on `message.content` |
-| **Encryption** | End-to-end encryption at Phase 3 |
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| **Push notifications** | 🟠 Medium | FCM/APNs/Web Push for offline users |
+| **Typing indicators** | ⚪ Low | Ephemeral `TYPING` frame |
+| **Message attachments** | ⚪ Low | Upload via `/api/v1/attachments` |
+| **Message deletion** | ⚪ Low | Per-participant soft-delete flags |
+| **Group chats** | ⚪ Low | `chat_participant` junction table |
+| **Message reactions** | ⚪ Low | `message_reaction` table |
+| **Message search** | ⚪ Low | PostgreSQL full-text index |
+| **Redis session store** | ⚪ Low | Horizontal scaling |
+| **End-to-end encryption** | ⚪ Future | Phase 3 |
 

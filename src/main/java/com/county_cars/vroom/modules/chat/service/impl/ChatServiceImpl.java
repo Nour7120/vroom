@@ -10,6 +10,7 @@ import com.county_cars.vroom.modules.chat.repository.ChatRepository;
 import com.county_cars.vroom.modules.chat.repository.MessageRepository;
 import com.county_cars.vroom.modules.chat.service.ChatService;
 import com.county_cars.vroom.modules.chat.websocket.ChatSessionManager;
+import com.county_cars.vroom.modules.marketplace.repository.ListingRepository;
 import com.county_cars.vroom.modules.user_profile.entity.UserProfile;
 import com.county_cars.vroom.modules.user_profile.repository.UserProfileRepository;
 import io.micrometer.core.instrument.Counter;
@@ -24,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,6 +36,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatRepository         chatRepository;
     private final MessageRepository      messageRepository;
     private final UserProfileRepository  userProfileRepository;
+    private final ListingRepository      listingRepository;
     private final ChatSessionManager     sessionManager;
     private final ChatProperties         props;
 
@@ -40,17 +44,20 @@ public class ChatServiceImpl implements ChatService {
     private final Counter messagesSentCounter;
     private final Counter messagesDeliveredCounter;
     private final Counter duplicateRejectedCounter;
+    private final Counter messagesReadCounter;
     private final Timer   deliveryLatencyTimer;
 
     public ChatServiceImpl(ChatRepository chatRepository,
                            MessageRepository messageRepository,
                            UserProfileRepository userProfileRepository,
+                           ListingRepository listingRepository,
                            ChatSessionManager sessionManager,
                            ChatProperties props,
                            MeterRegistry meterRegistry) {
         this.chatRepository        = chatRepository;
         this.messageRepository     = messageRepository;
         this.userProfileRepository = userProfileRepository;
+        this.listingRepository     = listingRepository;
         this.sessionManager        = sessionManager;
         this.props                 = props;
 
@@ -60,6 +67,8 @@ public class ChatServiceImpl implements ChatService {
                 .description("Total messages delivered live").register(meterRegistry);
         this.duplicateRejectedCounter  = Counter.builder("chat.messages.duplicate_rejected")
                 .description("Duplicate messages rejected").register(meterRegistry);
+        this.messagesReadCounter       = Counter.builder("chat.messages.read")
+                .description("Total messages marked READ").register(meterRegistry);
         this.deliveryLatencyTimer      = Timer.builder("chat.delivery.latency")
                 .description("Latency from persist to live delivery").register(meterRegistry);
     }
@@ -71,6 +80,14 @@ public class ChatServiceImpl implements ChatService {
     public ChatResponse openOrGetChat(Long currentUserId, Long otherUserId, Long listingId) {
         if (currentUserId.equals(otherUserId)) {
             throw new BadRequestException("Cannot open a chat with yourself");
+        }
+
+        // listingId is mandatory — every chat must originate from a marketplace listing
+        if (listingId == null) {
+            throw new BadRequestException("listingId is required — chats must be initiated from a listing");
+        }
+        if (!listingRepository.existsById(listingId)) {
+            throw new NotFoundException("Listing not found: " + listingId);
         }
 
         // Canonical ordering: lower ID is always participantOne
@@ -95,8 +112,20 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<ChatResponse> listChats(Long currentUserId) {
-        return chatRepository.findAllByParticipant(currentUserId).stream()
-                .map(c -> toChatResponse(c, currentUserId))
+        List<Chat> chats = chatRepository.findAllByParticipant(currentUserId);
+        if (chats.isEmpty()) return List.of();
+
+        // Batch unread count — single query instead of N+1
+        List<Long> chatIds = chats.stream().map(Chat::getId).toList();
+        Map<Long, Long> unreadMap = messageRepository
+                .countUnreadByChatIds(currentUserId, chatIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> (Long) row[1]));
+
+        return chats.stream()
+                .map(c -> toChatResponse(c, currentUserId, unreadMap.getOrDefault(c.getId(), 0L)))
                 .toList();
     }
 
@@ -190,6 +219,37 @@ public class ChatServiceImpl implements ChatService {
                 .map(this::toMessageResponse);
     }
 
+    // ── Read receipts ─────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void markRead(Long chatId, Long userId) {
+        if (!chatRepository.isParticipant(chatId, userId)) {
+            throw new UnauthorizedException("You are not a participant of chat " + chatId);
+        }
+
+        List<Message> toMark = messageRepository.findDeliveredMessagesForReader(chatId, userId);
+        if (toMark.isEmpty()) return;
+
+        for (Message m : toMark) {
+            m.setStatus(MessageStatus.READ);
+        }
+        messageRepository.saveAll(toMark);
+        messagesReadCounter.increment(toMark.size());
+
+        // Notify each sender (if online) that their messages were read
+        toMark.forEach(m -> {
+            WsOutboundMessage statusUpdate = WsOutboundMessage.builder()
+                    .type(WsMessageType.STATUS_UPDATE)
+                    .messageId(m.getId())
+                    .newStatus(MessageStatus.READ)
+                    .build();
+            sessionManager.sendToUser(m.getSender().getKeycloakUserId(), statusUpdate);
+        });
+
+        log.debug("Marked {} messages as READ in chatId={} for userId={}", toMark.size(), chatId, userId);
+    }
+
     // ── Status updates ────────────────────────────────────────────────────────
 
     @Override
@@ -218,6 +278,20 @@ public class ChatServiceImpl implements ChatService {
             }
         }
         messageRepository.saveAll(pending);
+
+        // Notify senders of each message that was just marked DELIVERED
+        pending.stream()
+                .filter(m -> m.getStatus() == MessageStatus.DELIVERED)
+                .forEach(m -> {
+                    WsOutboundMessage statusUpdate = WsOutboundMessage.builder()
+                            .type(WsMessageType.STATUS_UPDATE)
+                            .messageId(m.getId())
+                            .newStatus(MessageStatus.DELIVERED)
+                            .build();
+                    sessionManager.sendToUser(m.getSender().getKeycloakUserId(), statusUpdate);
+                    log.debug("STATUS_UPDATE DELIVERED sent to senderId={} for messageId={}",
+                            m.getSender().getId(), m.getId());
+                });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -233,13 +307,17 @@ public class ChatServiceImpl implements ChatService {
                 : chat.getParticipantOne().getId();
     }
 
+    /** Used by openOrGetChat (single chat — single count query). */
     private ChatResponse toChatResponse(Chat chat, Long currentUserId) {
+        long unread = messageRepository.countUndeliveredForUser(chat.getId(), currentUserId);
+        return toChatResponse(chat, currentUserId, unread);
+    }
+
+    /** Used by listChats (batch count already resolved). */
+    private ChatResponse toChatResponse(Chat chat, Long currentUserId, long unreadCount) {
         UserProfile other = chat.getParticipantOne().getId().equals(currentUserId)
                 ? chat.getParticipantTwo()
                 : chat.getParticipantOne();
-
-        long unread = messageRepository
-                .findUndeliveredForUser(chat.getId(), currentUserId).size();
 
         return ChatResponse.builder()
                 .id(chat.getId())
@@ -247,7 +325,7 @@ public class ChatServiceImpl implements ChatService {
                 .otherUserDisplayName(other.getDisplayName())
                 .listingId(chat.getListingId())
                 .lastMessageAt(chat.getLastMessageAt())
-                .unreadCount(unread)
+                .unreadCount(unreadCount)
                 .build();
     }
 

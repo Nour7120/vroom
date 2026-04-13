@@ -102,9 +102,31 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // PONG — client acknowledged our server-side ping
+        // PONG — client acknowledged our server-side ping (per-session tracking)
         if (inbound.getType() == WsMessageType.PONG) {
-            sessionManager.recordPong(keycloakUserId);
+            sessionManager.recordPong(session);
+            return;
+        }
+
+        // READ_RECEIPT — client has opened and read all messages in a chat
+        if (inbound.getType() == WsMessageType.READ_RECEIPT) {
+            if (inbound.getChatId() == null) {
+                sendError(session, "MESSAGE_ERROR", "chatId is required for READ_RECEIPT");
+                return;
+            }
+            UserProfile reader = userProfileRepository.findByKeycloakUserId(keycloakUserId)
+                    .orElse(null);
+            if (reader == null) {
+                sendError(session, "USER_NOT_FOUND", "User profile not found");
+                return;
+            }
+            try {
+                chatService.markRead(inbound.getChatId(), reader.getId());
+            } catch (Exception e) {
+                log.error("Error processing READ_RECEIPT from userId={}: {}", keycloakUserId, e.getMessage());
+                sendError(session, "MESSAGE_ERROR", e.getMessage());
+                errorCounter.increment();
+            }
             return;
         }
 
@@ -125,7 +147,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
             try {
                 WsOutboundMessage response = chatService.processMessage(sender.getId(), inbound);
-                // Send ACK back to sender
+                // Send ACK back to sender (all their devices)
                 WsOutboundMessage ack = WsOutboundMessage.builder()
                         .type(WsMessageType.ACK)
                         .messageId(response.getMessageId())
@@ -150,8 +172,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String keycloakUserId = resolveKeycloakUserId(session);
         if (keycloakUserId != null) {
-            sessionManager.remove(keycloakUserId);
-            rateLimiter.removeUser(keycloakUserId);
+            // Remove only this specific session; other devices remain connected
+            sessionManager.remove(keycloakUserId, session);
+            // Only clean up the rate-limiter bucket when this user has no more sessions
+            if (!sessionManager.isOnline(keycloakUserId)) {
+                rateLimiter.removeUser(keycloakUserId);
+            }
         }
         log.info("WebSocket closed: sessionId={} status={}", session.getId(), status);
     }
@@ -164,9 +190,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         closeQuietly(session, CloseStatus.SERVER_ERROR);
     }
 
-    // ── Rate-limiter refill — runs every second ────────────────────────────────
+    // ── Rate-limiter refill — runs every SECOND (matches configured messages-per-second) ──────
 
-    @Scheduled(fixedRate = 2000)
+    @Scheduled(fixedRate = 1000)
     public void refillRateLimitBuckets() {
         rateLimiter.refillAll();
     }

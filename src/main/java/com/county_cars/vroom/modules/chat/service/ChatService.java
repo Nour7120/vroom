@@ -26,6 +26,9 @@ public interface ChatService {
     /** Paginated message history for a chat (newest first). */
     Page<MessageResponse> getMessages(Long chatId, Long currentUserId, Pageable pageable);
 
+    /** Mark all DELIVERED messages in a chat as READ for the given user (reader), notify senders. */
+    void markRead(Long chatId, Long userId);
+
     /** Mark all SENT messages in a chat as DELIVERED for the given user. */
     void markDelivered(Long chatId, Long userId);
 

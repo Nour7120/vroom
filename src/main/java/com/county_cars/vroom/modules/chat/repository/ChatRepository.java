@@ -13,15 +13,15 @@ import java.util.Optional;
 public interface ChatRepository extends JpaRepository<Chat, Long> {
 
     /**
-     * Find an existing conversation between two users, optionally for a specific listing.
+     * Find an existing conversation between two users for a specific listing.
      * participantOne / participantTwo are always stored in ascending ID order.
+     * listingId is mandatory — every chat must be tied to a listing.
      */
     @Query("""
             SELECT c FROM Chat c
             WHERE c.participantOne.id = :p1
               AND c.participantTwo.id = :p2
-              AND (:listingId IS NULL AND c.listingId IS NULL
-                   OR c.listingId = :listingId)
+              AND c.listingId = :listingId
             """)
     Optional<Chat> findByParticipantsAndListing(
             @Param("p1") Long p1,

@@ -44,7 +44,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Deduplication check. */
     Optional<Message> findBySenderIdAndMessageClientId(Long senderId, String messageClientId);
 
-    /** Bulk-update SENT → DELIVERED for all messages in a chat directed at a user. */
+    /** Bulk-update status for all messages in a chat directed at a user. */
     @Modifying
     @Query("""
             UPDATE Message m SET m.status = :newStatus
@@ -57,5 +57,51 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("userId") Long userId,
             @Param("currentStatus") MessageStatus currentStatus,
             @Param("newStatus") MessageStatus newStatus);
+
+    /**
+     * Count of unread (SENT or DELIVERED) messages per chat for a user — used in list view.
+     * Returns List of [chatId (Long), count (Long)] tuples. Fixes N+1 in listChats().
+     */
+    @Query("""
+            SELECT m.chat.id, COUNT(m)
+            FROM Message m
+            WHERE m.sender.id <> :userId
+              AND m.status IN ('SENT', 'DELIVERED')
+              AND m.chat.id IN :chatIds
+            GROUP BY m.chat.id
+            """)
+    List<Object[]> countUnreadByChatIds(
+            @Param("userId") Long userId,
+            @Param("chatIds") List<Long> chatIds);
+
+    /**
+     * Count of unread (SENT or DELIVERED) messages in a single chat for a user.
+     * Used for single-chat response in openOrGetChat().
+     */
+    @Query("""
+            SELECT COUNT(m)
+            FROM Message m
+            WHERE m.chat.id = :chatId
+              AND m.sender.id <> :userId
+              AND m.status IN ('SENT', 'DELIVERED')
+            """)
+    long countUndeliveredForUser(@Param("chatId") Long chatId, @Param("userId") Long userId);
+
+    /**
+     * All DELIVERED messages in a chat that were sent by someone other than :userId
+     * (i.e. messages the given user has received but not yet READ).
+     * Fetches sender eagerly to avoid LazyInitializationException in markRead().
+     */
+    @Query("""
+            SELECT m FROM Message m
+            JOIN FETCH m.sender
+            WHERE m.chat.id = :chatId
+              AND m.sender.id <> :userId
+              AND m.status = 'DELIVERED'
+            ORDER BY m.createdAt ASC
+            """)
+    List<Message> findDeliveredMessagesForReader(
+            @Param("chatId") Long chatId,
+            @Param("userId") Long userId);
 }
 

@@ -12,7 +12,8 @@ public class OpenChatRequest {
     @Schema(description = "The other participant's user profile ID", example = "5")
     private Long otherUserId;
 
-    @Schema(description = "Optional listing ID this chat is about", example = "12")
+    @NotNull
+    @Schema(description = "The marketplace listing this chat is about. Every chat must originate from a listing.", example = "12")
     private Long listingId;
 }
 
