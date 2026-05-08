@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="023-constraint-notification-fk" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            -- notifications constraints
+            ALTER TABLE notifications
+                ADD CONSTRAINT fk_notification_job
+                    FOREIGN KEY (job_id) REFERENCES notification_jobs (id);
+
+            ALTER TABLE notifications
+                ADD CONSTRAINT fk_notification_user
+                    FOREIGN KEY (user_id) REFERENCES user_profile (id);
+
+            ALTER TABLE notifications
+                ADD CONSTRAINT uq_notification_job_user
+                    UNIQUE (job_id, user_id);
+
+            ALTER TABLE notifications
+                ADD CONSTRAINT chk_notification_push_status
+                    CHECK (push_status IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED'));
+
+            -- user_devices constraints
+            ALTER TABLE user_devices
+                ADD CONSTRAINT fk_user_device_user
+                    FOREIGN KEY (user_id) REFERENCES user_profile (id);
+
+            -- notification_attempts constraints
+            ALTER TABLE notification_attempts
+                ADD CONSTRAINT fk_notification_attempt_notification
+                    FOREIGN KEY (notification_id) REFERENCES notifications (id);
+
+            ALTER TABLE notification_attempts
+                ADD CONSTRAINT fk_notification_attempt_device
+                    FOREIGN KEY (device_id) REFERENCES user_devices (id);
+
+            ALTER TABLE notification_attempts
+                ADD CONSTRAINT chk_notification_attempt_status
+                    CHECK (status IN ('SUCCESS', 'FAILED'));
+
+            -- notification_jobs constraints
+            ALTER TABLE notification_jobs
+                ADD CONSTRAINT chk_notification_job_status
+                    CHECK (status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED'));
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

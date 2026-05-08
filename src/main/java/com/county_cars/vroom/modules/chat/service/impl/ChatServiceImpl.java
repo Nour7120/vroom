@@ -241,6 +241,7 @@ public class ChatServiceImpl implements ChatService {
         toMark.forEach(m -> {
             WsOutboundMessage statusUpdate = WsOutboundMessage.builder()
                     .type(WsMessageType.STATUS_UPDATE)
+                    .chatId(m.getChat().getId())
                     .messageId(m.getId())
                     .newStatus(MessageStatus.READ)
                     .build();
@@ -285,6 +286,7 @@ public class ChatServiceImpl implements ChatService {
                 .forEach(m -> {
                     WsOutboundMessage statusUpdate = WsOutboundMessage.builder()
                             .type(WsMessageType.STATUS_UPDATE)
+                            .chatId(m.getChat().getId())
                             .messageId(m.getId())
                             .newStatus(MessageStatus.DELIVERED)
                             .build();

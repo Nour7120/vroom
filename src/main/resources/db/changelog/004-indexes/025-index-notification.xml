@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+    <changeSet id="025-index-notification" author="nour">
+        <sql splitStatements="true" stripComments="true">
+            -- notification_jobs: worker picks up PENDING/IN_PROGRESS jobs
+            CREATE INDEX idx_notification_jobs_status
+                ON notification_jobs (status, id)
+                WHERE is_deleted = false;
+
+            -- notifications: user's notification center (most common query)
+            CREATE INDEX idx_notifications_user_created
+                ON notifications (user_id, created_at DESC)
+                WHERE is_deleted = false;
+
+            -- notifications: retry worker eligibility scan
+            CREATE INDEX idx_notifications_retry_eligible
+                ON notifications (push_status, attempt_count, next_retry_at)
+                WHERE is_deleted = false AND push_status = 'FAILED';
+
+            -- notifications: unread count
+            CREATE INDEX idx_notifications_user_unread
+                ON notifications (user_id, is_read)
+                WHERE is_deleted = false AND is_read = false;
+
+            -- user_devices: load active tokens per user (very frequent)
+            CREATE INDEX idx_user_devices_user_active
+                ON user_devices (user_id)
+                WHERE is_deleted = false AND is_active = true;
+
+            -- user_devices: upsert by token (unique for active tokens)
+            CREATE UNIQUE INDEX uq_user_devices_token_active
+                ON user_devices (token)
+                WHERE is_deleted = false;
+
+            -- notification_attempts: audit by notification
+            CREATE INDEX idx_notification_attempts_notification_id
+                ON notification_attempts (notification_id, attempt_number);
+        </sql>
+    </changeSet>
+</databaseChangeLog>
+

@@ -37,17 +37,8 @@ public class ChatSessionManager {
 
     static final String ATTR_LAST_PONG = "lastPongAt";
     static final String ATTR_MISSED    = "missedHeartbeats";
-
-    /** userId (Keycloak sub) → list of active sessions (one per device) */
-    private final Map<String, CopyOnWriteArrayList<WebSocketSession>> sessions =
-            new ConcurrentHashMap<>();
-
-    /**
-     * Per-session send lock — keyed by {@link WebSocketSession#getId()} to prevent
-     * concurrent writes on the same socket from multiple threads.
-     */
+    private final Map<String, CopyOnWriteArrayList<WebSocketSession>> sessions = new ConcurrentHashMap<>();
     private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
-
     private final ObjectMapper   objectMapper;
     private final ChatProperties props;
     private final ScheduledExecutorService scheduler =
@@ -219,9 +210,6 @@ public class ChatSessionManager {
         }
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────────────
-
-    /** Sends a pre-serialised JSON string to a specific session using a per-session lock. */
     private boolean sendToSession(WebSocketSession session, String json) {
         Object lock = sessionLocks.computeIfAbsent(session.getId(), k -> new Object());
         synchronized (lock) {
