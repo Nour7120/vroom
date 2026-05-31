@@ -9,7 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.Collection;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -17,13 +17,16 @@ import java.util.Set;
 @Repository
 public interface UserProfileRepository extends JpaRepository<UserProfile, Long> {
     Optional<UserProfile> findByKeycloakUserId(String keycloakUserId);
-    Optional<UserProfile> findByKeycloakUserIdAndStatusIn(String keycloakUserId, Set<UserStatus> status);
     Optional<UserProfile> findByEmailAndStatusIn(String email, Set<UserStatus> status);
+    Optional<UserProfile> findByEmail(String email);
     boolean existsByEmail(String email);
-    boolean existsByEmailAndStatusIn(String email, Set<UserStatus> status);
     boolean existsByKeycloakUserId(String keycloakUserId);
     boolean existsByDisplayName(String displayName);
     Page<UserProfile> findAllByIsDeletedFalse(Pageable pageable);
+
+    List<UserProfile> findByStatusAndLastVerificationEmailSentAtBefore(
+            UserStatus status, Instant cutoff, Pageable pageable
+    );
 
     /**
      * Cursor-based pagination for the notification fan-out worker.

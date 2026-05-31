@@ -133,8 +133,21 @@ public class AuthServiceImpl implements AuthService {
 
         log.info("Change-password requested for email={} keycloakUserId={}", email, profile.getKeycloakUserId());
 
+        // Validate new password confirmation first (cheap check, no Keycloak call needed).
         if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
             throw new BadRequestException("New password and confirm password do not match.");
+        }
+
+        // Edge case: new password is the same as the current one — reject early.
+        if (request.getCurrentPassword().equals(request.getNewPassword())) {
+            throw new BadRequestException("New password must be different from your current password.");
+        }
+
+        // Edge case: social-only (third-party) accounts have no local password in Keycloak.
+        // verifyUserCredentials would always fail for them with a misleading error.
+        boolean hasLocalPassword = keycloakAdminService.hasLocalPassword(profile.getKeycloakUserId());
+        if (!hasLocalPassword) {
+            throw new BadRequestException("Your account does not have a local password. Please use your social login provider to access your account.");
         }
 
         boolean credentialsValid = keycloakAdminService.verifyUserCredentials(email, request.getCurrentPassword());

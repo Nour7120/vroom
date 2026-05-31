@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
 public class KeycloakEventWebhookController {
 
     private final KeycloakEventWebhookService webhookService;
-    String webhookSecret = "abc123";
+
+    @Value("${keycloak.webhook.secret}")
+    private String webhookSecret;
 
     @Operation(summary = "Receive Keycloak events", description = "Internal webhook called by Keycloak on user events")
     @PostMapping
@@ -27,6 +30,7 @@ public class KeycloakEventWebhookController {
             @RequestBody KeycloakEventPayload payload) {
         log.info("Received Keycloak event: type={}, userId={}", payload.getType(), payload.getUserId());
         if (!webhookSecret.equals(secret)) {
+            log.warn("Webhook rejected — invalid X-Internal-Secret header");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         webhookService.handleEvent(payload);

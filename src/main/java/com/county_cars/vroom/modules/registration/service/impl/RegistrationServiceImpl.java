@@ -3,7 +3,6 @@ package com.county_cars.vroom.modules.registration.service.impl;
 import com.county_cars.vroom.common.exception.BadRequestException;
 import com.county_cars.vroom.common.exception.ConflictException;
 import com.county_cars.vroom.common.exception.NotFoundException;
-import com.county_cars.vroom.common.exception.UnauthorizedException;
 import com.county_cars.vroom.modules.keycloak.CurrentUserService;
 import com.county_cars.vroom.modules.keycloak.KeycloakAdminService;
 import com.county_cars.vroom.modules.keycloak.dto.CreateKeycloakUserRequest;
@@ -23,19 +22,27 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Orchestrates the full user registration flow.
  *
- * <h3>Steps</h3>
+ * <h3>Normal registration steps</h3>
  * <ol>
- *   <li>Validate email / displayName uniqueness in the DB</li>
+ *   <li>Validate email / displayName uniqueness in the DB (with status-specific messages)</li>
  *   <li>Create user in Keycloak — Keycloak triggers its own VERIFY_EMAIL action</li>
  *   <li>Persist {@link UserProfile} with status {@code PENDING_MAIL_VERIFICATION}</li>
  *   <li>If DB save fails → delete the Keycloak user (compensating rollback)</li>
+ * </ol>
+ *
+ * <h3>Third-party registration steps</h3>
+ * <ol>
+ *   <li>Verify the caller is authenticated (JWT present)</li>
+ *   <li>Guard against double-completion (keycloakUserId already has a profile)</li>
+ *   <li>Validate the supplied email matches the JWT email claim (if present)</li>
+ *   <li>Validate email / displayName uniqueness with status-aware conflict messages</li>
+ *   <li>Persist {@link UserProfile} with status {@code ACTIVE} immediately (email already verified by provider)</li>
  * </ol>
  *
  * <p>Resend throttling uses a DB timestamp (interval guard) and an in-process
@@ -59,15 +66,17 @@ public class RegistrationServiceImpl implements RegistrationService {
     private final ConcurrentHashMap<String, AtomicInteger> dailyResendCounter = new ConcurrentHashMap<>();
 
 
+    // ─── Normal Registration ──────────────────────────────────────────────────────
+
     @Override
     @Transactional
     public RegistrationResponse register(RegistrationRequest request) {
         String email = request.getEmail().toLowerCase().trim();
         String displayName = request.getDisplayName().trim();
 
-        if (userProfileRepository.existsByEmailAndStatusIn(email, Set.of(UserStatus.ACTIVE))) {
-            throw new ConflictException("Email is already registered: " + email);
-        }
+        // Edge case: email already taken — give status-specific messages.
+        assertEmailAvailableForNewRegistration(email);
+
         if (userProfileRepository.existsByDisplayName(displayName)) {
             throw new ConflictException("Display name is already taken: " + displayName);
         }
@@ -114,17 +123,35 @@ public class RegistrationServiceImpl implements RegistrationService {
     }
 
 
+    // ─── Third-Party Registration ─────────────────────────────────────────────────
+
+    @Override
+    @Transactional
     public RegistrationResponse completeThirdPartyRegistration(CompleteRegistrationRequest request) {
         String currentKeycloakUserId = currentUserService.getCurrentKeycloakUserId();
-        if (currentKeycloakUserId.isBlank()) {
-            throw new UnauthorizedException("No authenticated Keycloak user found for third-party registration completion");
+
+        // Edge case: already completed (e.g. double submit or retry after success).
+        if (userProfileRepository.existsByKeycloakUserId(currentKeycloakUserId)) {
+            throw new ConflictException(
+                    "Registration already completed for this account. Use GET /api/v1/auth/me to view your profile.");
         }
+
         String email = request.getEmail().toLowerCase().trim();
+
+        // Edge case: supplied email must match the email on the JWT (if the provider exposed one).
+        // This prevents a third-party user from hijacking another user's email address.
+        String jwtEmail = currentUserService.getCurrentEmail();
+        if (jwtEmail != null && !jwtEmail.isBlank() && !jwtEmail.equalsIgnoreCase(email)) {
+            throw new BadRequestException(
+                    "The provided email does not match the email on your authenticated account. "
+                    + "Please use the email address associated with your social login.");
+        }
+
         String displayName = request.getDisplayName().trim();
 
-        if (userProfileRepository.existsByEmailAndStatusIn(email, Set.of(UserStatus.ACTIVE))) {
-            throw new ConflictException("Email is already registered: " + email);
-        }
+        // Edge case: email taken — give status-specific messages.
+        assertEmailAvailableForNewRegistration(email);
+
         if (userProfileRepository.existsByDisplayName(displayName)) {
             throw new ConflictException("Display name is already taken: " + displayName);
         }
@@ -139,7 +166,7 @@ public class RegistrationServiceImpl implements RegistrationService {
                     .status(UserStatus.ACTIVE)
                     .build();
             profile = userProfileRepository.save(profile);
-            log.info("UserProfile persisted: id={} email={}", profile.getId(), email);
+            log.info("Third-party UserProfile persisted: id={} email={}", profile.getId(), email);
         } catch (Exception dbEx) {
             throw new IllegalStateException("Registration failed during profile persistence. Please try again.", dbEx);
         }
@@ -155,19 +182,29 @@ public class RegistrationServiceImpl implements RegistrationService {
     }
 
 
+    // ─── Resend Verification Email ────────────────────────────────────────────────
+
     @Override
     @Transactional
     public void resendVerificationEmail(ResendVerificationRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        UserProfile profile = userProfileRepository.findByEmailAndStatusIn(email, Set.of(UserStatus.PENDING_MAIL_VERIFICATION))
+        // Fetch by email regardless of status so we can give specific, actionable error messages.
+        UserProfile profile = userProfileRepository.findByEmail(email)
                 .orElseThrow(() -> new NotFoundException("No account found for email: " + email));
 
-        if (profile.getStatus() != UserStatus.PENDING_MAIL_VERIFICATION) {
-            throw new BadRequestException(
-                    "Account is not pending verification. Current status: " + profile.getStatus());
+        // Edge case: account already active — verification not needed.
+        if (profile.getStatus() == UserStatus.ACTIVE) {
+            throw new BadRequestException("Account is already active. No email verification is required.");
         }
 
+        // Edge case: account suspended or inactive — cannot resend.
+        if (profile.getStatus() != UserStatus.PENDING_MAIL_VERIFICATION) {
+            throw new BadRequestException(
+                    "Email verification is not applicable for accounts with status: " + profile.getStatus());
+        }
+
+        // Enforce minimum resend interval.
         if (profile.getLastVerificationEmailSentAt() != null) {
             Instant earliest = profile.getLastVerificationEmailSentAt()
                     .plus(resendIntervalMinutes, java.time.temporal.ChronoUnit.MINUTES);
@@ -178,6 +215,7 @@ public class RegistrationServiceImpl implements RegistrationService {
             }
         }
 
+        // Enforce daily cap (in-process counter; use Redis for multi-instance deployments).
         String dailyKey = email + ":" + LocalDate.now();
         evictStaleDailyKeys(email);
         AtomicInteger todayCount = dailyResendCounter.computeIfAbsent(dailyKey, k -> new AtomicInteger(0));
@@ -195,6 +233,27 @@ public class RegistrationServiceImpl implements RegistrationService {
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Checks whether the given email is free to use for a brand-new registration.
+     *
+     * <ul>
+     *   <li>ACTIVE / INACTIVE / SUSPENDED → "Email already registered"</li>
+     *   <li>PENDING_MAIL_VERIFICATION → "Verification email already sent — check inbox or resend"</li>
+     * </ul>
+     *
+     * @throws ConflictException if the email is already in use
+     */
+    private void assertEmailAvailableForNewRegistration(String email) {
+        userProfileRepository.findByEmail(email).ifPresent(existing -> {
+            if (existing.getStatus() == UserStatus.PENDING_MAIL_VERIFICATION) {
+                throw new ConflictException(
+                        "A verification email has already been sent to " + email
+                        + ". Please check your inbox or use resend-verification to get a new link.");
+            }
+            throw new ConflictException("Email is already registered: " + email);
+        });
+    }
 
     private void evictStaleDailyKeys(String email) {
         String todayKey = email + ":" + LocalDate.now();

@@ -23,7 +23,7 @@ public class KeycloakEventWebhookService {
     public void handleEvent(KeycloakEventPayload payload) {
         if ("VERIFY_EMAIL".equals(payload.getType())) {
             handleEmailVerified(payload.getUserId());
-        }// You can handle other events here: LOGIN, LOGOUT, UPDATE_PASSWORD, etc.
+        }
     }
 
     private void handleEmailVerified(String keycloakUserId) {
