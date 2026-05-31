@@ -5,9 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
-/**
- * Request body for the resend-verification-email endpoint.
- */
+
 @Data
 @Schema(description = "Request to re-send the Keycloak email verification link")
 public class ResendVerificationRequest {

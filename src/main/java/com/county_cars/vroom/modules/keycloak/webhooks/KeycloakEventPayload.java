@@ -6,7 +6,6 @@ import lombok.Data;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class KeycloakEventPayload {
-
     private String type;          // e.g. "VERIFY_EMAIL", "LOGIN", "REGISTER"
     private String userId;        // Keycloak user ID
     private String realmId;

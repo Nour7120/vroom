@@ -8,10 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
-/**
- * Produces a singleton {@link Keycloak} admin-client bean and a {@link RestClient}
- * used for direct HTTP calls to Keycloak endpoints (e.g. credential verification).
- */
+
 @Configuration
 @RequiredArgsConstructor
 public class KeycloakAdminClientConfig {
@@ -22,7 +19,7 @@ public class KeycloakAdminClientConfig {
     public Keycloak keycloakAdminClient() {
         return KeycloakBuilder.builder()
                 .serverUrl(props.getServerUrl())
-                .realm("master")                       // always authenticate against master
+                .realm("master")
                 .grantType(OAuth2Constants.PASSWORD)
                 .clientId("admin-cli")
                 .username(props.getUsername())

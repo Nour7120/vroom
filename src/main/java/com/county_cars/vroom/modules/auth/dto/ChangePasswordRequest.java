@@ -6,12 +6,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/**
- * Request body for the change-password endpoint (authenticated users only).
- *
- * <p>Validation is intentional at DTO level so the controller returns a clean
- * 400 before any Keycloak call is made.</p>
- */
+
 @Data
 @Schema(description = "Request to change the authenticated user's password")
 public class ChangePasswordRequest {

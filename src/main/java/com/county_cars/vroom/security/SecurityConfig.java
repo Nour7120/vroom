@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity   // enables @PreAuthorize / @PostAuthorize on all @Service / @Controller beans
+@EnableMethodSecurity(prePostEnabled = false)   // enables @PreAuthorize / @PostAuthorize on all @Service / @Controller beans
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -49,7 +49,9 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/actuator/health",
             "/actuator/info",
-            "/api/v1/auth/**",
+            "/api/v1/auth/forgot-password",
+            "/api/v1/auth/register",
+            "/api/v1/auth/resend-verification",
             "/internal/keycloak/events",
             "/ws/chat"          // WebSocket upgrade — JWT validated in ChatHandshakeInterceptor
     };

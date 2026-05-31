@@ -1,6 +1,7 @@
 package com.county_cars.vroom.modules.user_profile.repository;
 
 import com.county_cars.vroom.modules.user_profile.entity.UserProfile;
+import com.county_cars.vroom.modules.user_profile.entity.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,14 +9,18 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public interface UserProfileRepository extends JpaRepository<UserProfile, Long> {
     Optional<UserProfile> findByKeycloakUserId(String keycloakUserId);
-    Optional<UserProfile> findByEmail(String email);
+    Optional<UserProfile> findByKeycloakUserIdAndStatusIn(String keycloakUserId, Set<UserStatus> status);
+    Optional<UserProfile> findByEmailAndStatusIn(String email, Set<UserStatus> status);
     boolean existsByEmail(String email);
+    boolean existsByEmailAndStatusIn(String email, Set<UserStatus> status);
     boolean existsByKeycloakUserId(String keycloakUserId);
     boolean existsByDisplayName(String displayName);
     Page<UserProfile> findAllByIsDeletedFalse(Pageable pageable);

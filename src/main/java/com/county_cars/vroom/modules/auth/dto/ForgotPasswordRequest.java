@@ -5,11 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
-/**
- * Request body for the forgot-password endpoint.
- *
- * <p>The email is normalized (lowercase + trim) in the service layer.</p>
- */
+
 @Data
 @Schema(description = "Request to trigger a Keycloak password-reset email")
 public class ForgotPasswordRequest {

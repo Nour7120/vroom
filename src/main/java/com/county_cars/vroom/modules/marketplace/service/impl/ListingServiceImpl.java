@@ -217,7 +217,7 @@ public class ListingServiceImpl implements ListingService {
 
         List<Long> vehicleIds = listings.getContent().stream()
                 .map(l -> l.getVehicle().getId())
-                .collect(Collectors.toList());
+                .toList();
 
         Map<Long, VehicleMedia> thumbnailMap = vehicleMediaRepository
                 .findThumbnailsWithAttachmentByVehicleIds(vehicleIds)

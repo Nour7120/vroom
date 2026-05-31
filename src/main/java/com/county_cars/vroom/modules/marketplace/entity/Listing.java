@@ -42,7 +42,7 @@ public class Listing extends BaseEntity {
     @Column(name = "description", length = 2000)
     private String description;
 
-    @Column(name = "location", length = 255)
+    @Column(name = "location")
     private String location;
 
     @Column(name = "published_at")

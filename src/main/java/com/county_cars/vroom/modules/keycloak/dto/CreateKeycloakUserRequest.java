@@ -3,10 +3,7 @@ package com.county_cars.vroom.modules.keycloak.dto;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * Internal DTO passed to {@code KeycloakAdminService#createUser}.
- * Never exposed directly to the API layer.
- */
+
 @Data
 @Builder
 public class CreateKeycloakUserRequest {

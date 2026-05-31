@@ -11,6 +11,7 @@ import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.FederatedIdentityRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -24,25 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Central service for all Keycloak Admin REST API operations.
- *
- * <p>Responsibilities:
- * <ul>
- *   <li>Create a new user (Keycloak triggers its own verification email)</li>
- *   <li>Delete a user (rollback on registration failure)</li>
- *   <li>Trigger re-send of Keycloak's built-in verification email</li>
- *   <li>Trigger Keycloak's built-in "forgot password" / reset-password email</li>
- *   <li>Hard-reset a user's password directly (admin flow)</li>
- *   <li>Enable / disable a user account</li>
- *   <li>Update user attributes (firstName, lastName, email)</li>
- *   <li>Fetch a user by ID or email</li>
- * </ul>
- * </p>
- *
- * <p>All email sending (verification, reset-password, forgot-password) is delegated to
- * Keycloak's own email facilities — the backend never sends mail directly.</p>
- */
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -52,15 +35,8 @@ public class KeycloakAdminService {
     private final KeycloakAdminProperties props;
     private final RestClient restClient;
 
-    // ─── Create ──────────────────────────────────────────────────────────────────
+    private static final String VERIFY_EMAIL = "VERIFY_EMAIL";
 
-    /**
-     * Creates a new Keycloak user and returns the assigned UUID.
-     * If {@link CreateKeycloakUserRequest#isSendVerificationEmail()} is {@code true},
-     * Keycloak will automatically dispatch its built-in email-verification message.
-     *
-     * @throws ConflictException if the email is already registered in Keycloak
-     */
     public String createUser(CreateKeycloakUserRequest request) {
         UserRepresentation user = buildUserRepresentation(request);
 
@@ -84,20 +60,13 @@ public class KeycloakAdminService {
             log.info("Keycloak user created: id={} email={}", userId, request.getEmail());
             if (request.isSendVerificationEmail())
             {
-                // TODO: If error happens -> remove user from keycloak.
-                userResource(userId).executeActionsEmail(List.of("VERIFY_EMAIL"));
+                userResource(userId).executeActionsEmail(List.of());
                 log.info("Keycloak verification email sent for userId={}", userId);
             }
             return userId;
         }
     }
 
-    // ─── Delete ──────────────────────────────────────────────────────────────────
-
-    /**
-     * Hard-deletes a user from Keycloak.
-     * Used as a rollback step when DB persistence fails after Keycloak creation.
-     */
     public void deleteUser(String keycloakUserId) {
         try {
             usersResource().delete(keycloakUserId);
@@ -107,48 +76,18 @@ public class KeycloakAdminService {
         }
     }
 
-    // ─── Email actions (all delegated to Keycloak) ────────────────────────────
-
-    /**
-     * Triggers Keycloak to re-send the email-verification message.
-     * Keycloak tracks its own resend rate; this call just instructs it to execute
-     * the {@code VERIFY_EMAIL} required action.
-     */
     public void sendVerificationEmail(String keycloakUserId) {
         log.info("Triggering Keycloak verification email for userId={}", keycloakUserId);
         userResource(keycloakUserId).executeActionsEmail(
-                List.of("VERIFY_EMAIL"));
+                List.of(VERIFY_EMAIL));
     }
 
-    /**
-     * Triggers Keycloak to send a "forgot password" / reset-password email.
-     * The user receives a link to set a new password without knowing the old one.
-     */
     public void sendPasswordResetEmail(String keycloakUserId) {
         log.info("Triggering Keycloak password-reset email for userId={}", keycloakUserId);
         userResource(keycloakUserId).executeActionsEmail(
                 List.of("UPDATE_PASSWORD"));
     }
 
-    /**
-     * Triggers Keycloak to send a combined "forgot password + verify email" email.
-     * Useful when a user has not verified their email and also needs to reset their password.
-     */
-    public void sendForgotPasswordEmail(String keycloakUserId) {
-        log.info("Triggering Keycloak forgot-password email for userId={}", keycloakUserId);
-        userResource(keycloakUserId).executeActionsEmail(
-                List.of("UPDATE_PASSWORD", "VERIFY_EMAIL"));
-    }
-
-    // ─── Password ────────────────────────────────────────────────────────────────
-
-    /**
-     * Directly resets a user's password (admin-forced, no email needed).
-     *
-     * @param keycloakUserId the Keycloak UUID
-     * @param newPassword    the plain-text new password (Keycloak hashes it)
-     * @param temporary      if {@code true} the user must change it on next login
-     */
     public void resetPassword(String keycloakUserId, String newPassword, boolean temporary) {
         log.info("Admin resetting password for userId={} temporary={}", keycloakUserId, temporary);
         CredentialRepresentation credential = new CredentialRepresentation();
@@ -186,13 +125,6 @@ public class KeycloakAdminService {
         userResource(keycloakUserId).update(user);
     }
 
-    // ─── Query ───────────────────────────────────────────────────────────────────
-
-    /**
-     * Fetches a Keycloak user by their UUID.
-     *
-     * @throws NotFoundException if no user with that id exists
-     */
     public UserRepresentation getUserById(String keycloakUserId) {
         try {
             return userResource(keycloakUserId).toRepresentation();
@@ -201,32 +133,6 @@ public class KeycloakAdminService {
         }
     }
 
-    /**
-     * Searches Keycloak for a user by exact email match.
-     *
-     * @throws NotFoundException if no matching user exists
-     */
-    public UserRepresentation getUserByEmail(String email) {
-        List<UserRepresentation> users = usersResource().searchByEmail(email, true);
-        if (users == null || users.isEmpty()) {
-            throw new NotFoundException("No Keycloak user found with email: " + email);
-        }
-        return users.getFirst();
-    }
-
-    // ─── Credential verification ─────────────────────────────────────────────────
-
-    /**
-     * Verifies a user's current password by attempting a Resource Owner Password
-     * Credentials (ROPC) token grant against Keycloak's token endpoint.
-     *
-     * <p>This is the only reliable way to check "is this the correct password?"
-     * without storing credentials server-side. The token is immediately discarded.</p>
-     *
-     * @param email    the user's email (used as Keycloak username)
-     * @param password the password to verify
-     * @return {@code true} if Keycloak accepted the credentials, {@code false} if 401
-     */
     public boolean verifyUserCredentials(String email, String password) {
         String tokenUrl = props.getServerUrl()
                 + "/realms/" + props.getRealm()
@@ -357,16 +263,6 @@ public class KeycloakAdminService {
         }
     }
 
-    // ─── Profile enrichment (minimal — /me endpoint only) ────────────────────────
-
-    /**
-     * Returns whether the user's email has been verified in Keycloak.
-     *
-     * <p>Uses a single {@code toRepresentation()} call and reads {@code emailVerified}.
-     * No other fields are consumed from the response.</p>
-     *
-     * @return {@code true} if verified; {@code false} on any error (fail-safe)
-     */
     public boolean isEmailVerified(String keycloakUserId) {
         try {
             Boolean verified = userResource(keycloakUserId).toRepresentation().isEmailVerified();
@@ -377,15 +273,6 @@ public class KeycloakAdminService {
         }
     }
 
-    /**
-     * Returns the set of federated identity provider aliases linked to this account
-     * (e.g. {@code "google"}, {@code "apple"}).
-     *
-     * <p>Uses {@code getFederatedIdentity()} — a dedicated lightweight endpoint that does
-     * NOT return full user attributes or roles.</p>
-     *
-     * @return provider alias set; empty set on any error (fail-safe)
-     */
     public Set<String> getFederatedIdentityProviders(String keycloakUserId) {
         try {
             var federatedIdentities = userResource(keycloakUserId).getFederatedIdentity();
@@ -393,7 +280,7 @@ public class KeycloakAdminService {
                 return Set.of();
             }
             return federatedIdentities.stream()
-                    .map(fi -> fi.getIdentityProvider())
+                    .map(FederatedIdentityRepresentation::getIdentityProvider)
                     .collect(Collectors.toUnmodifiableSet());
         } catch (Exception e) {
             log.error("Failed to fetch federated identities for keycloakUserId={}: {}", keycloakUserId, e.getMessage());
@@ -401,14 +288,6 @@ public class KeycloakAdminService {
         }
     }
 
-    /**
-     * Returns whether the user has a local password credential in Keycloak.
-     *
-     * <p>Uses {@code credentials()} and checks for any entry with type {@code "password"}.
-     * Social-only accounts (created via an IdP) will return {@code false}.</p>
-     *
-     * @return {@code true} if a local password credential exists; {@code false} on any error (fail-safe)
-     */
     public boolean hasLocalPassword(String keycloakUserId) {
         try {
             var credentials = userResource(keycloakUserId).credentials();
@@ -423,33 +302,31 @@ public class KeycloakAdminService {
         }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-    private UsersResource usersResource() {
-        return keycloak.realm(props.getRealm()).users();
-    }
+    // Helpers
 
     private UserResource userResource(String keycloakUserId) {
         return usersResource().get(keycloakUserId);
     }
 
+    private UsersResource usersResource() {
+        return keycloak.realm(props.getRealm()).users();
+    }
+
     private UserRepresentation buildUserRepresentation(CreateKeycloakUserRequest request) {
         UserRepresentation user = new UserRepresentation();
         user.setEmail(request.getEmail());
-        user.setUsername(request.getEmail());   // use email as username
+        user.setUsername(request.getEmail());
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
         user.setEnabled(request.isEnabled());
         user.setEmailVerified(false);
 
-        // Required actions
         if (request.isSendVerificationEmail()) {
-            user.setRequiredActions(List.of("VERIFY_EMAIL"));
+            user.setRequiredActions(List.of(VERIFY_EMAIL));
         } else {
             user.setRequiredActions(Collections.emptyList());
         }
 
-        // Initial password credential
         if (request.getPassword() != null) {
             CredentialRepresentation credential = new CredentialRepresentation();
             credential.setType(CredentialRepresentation.PASSWORD);

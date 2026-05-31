@@ -3,8 +3,11 @@ package com.county_cars.vroom.modules.registration.service.impl;
 import com.county_cars.vroom.common.exception.BadRequestException;
 import com.county_cars.vroom.common.exception.ConflictException;
 import com.county_cars.vroom.common.exception.NotFoundException;
+import com.county_cars.vroom.common.exception.UnauthorizedException;
+import com.county_cars.vroom.modules.keycloak.CurrentUserService;
 import com.county_cars.vroom.modules.keycloak.KeycloakAdminService;
 import com.county_cars.vroom.modules.keycloak.dto.CreateKeycloakUserRequest;
+import com.county_cars.vroom.modules.registration.dto.CompleteRegistrationRequest;
 import com.county_cars.vroom.modules.registration.dto.RegistrationRequest;
 import com.county_cars.vroom.modules.registration.dto.RegistrationResponse;
 import com.county_cars.vroom.modules.registration.dto.ResendVerificationRequest;
@@ -20,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,6 +48,7 @@ public class RegistrationServiceImpl implements RegistrationService {
 
     private final KeycloakAdminService keycloakAdminService;
     private final UserProfileRepository userProfileRepository;
+    private final CurrentUserService currentUserService;
 
     @Value("${registration.verification.resend-interval-minutes:2}")
     private int resendIntervalMinutes;
@@ -53,7 +58,6 @@ public class RegistrationServiceImpl implements RegistrationService {
 
     private final ConcurrentHashMap<String, AtomicInteger> dailyResendCounter = new ConcurrentHashMap<>();
 
-    // ─── Register ────────────────────────────────────────────────────────────────
 
     @Override
     @Transactional
@@ -61,7 +65,7 @@ public class RegistrationServiceImpl implements RegistrationService {
         String email = request.getEmail().toLowerCase().trim();
         String displayName = request.getDisplayName().trim();
 
-        if (userProfileRepository.existsByEmail(email)) {
+        if (userProfileRepository.existsByEmailAndStatusIn(email, Set.of(UserStatus.ACTIVE))) {
             throw new ConflictException("Email is already registered: " + email);
         }
         if (userProfileRepository.existsByDisplayName(displayName)) {
@@ -109,14 +113,54 @@ public class RegistrationServiceImpl implements RegistrationService {
                 .build();
     }
 
-    // ─── Resend verification email ────────────────────────────────────────────────
+
+    public RegistrationResponse completeThirdPartyRegistration(CompleteRegistrationRequest request) {
+        String currentKeycloakUserId = currentUserService.getCurrentKeycloakUserId();
+        if (currentKeycloakUserId.isBlank()) {
+            throw new UnauthorizedException("No authenticated Keycloak user found for third-party registration completion");
+        }
+        String email = request.getEmail().toLowerCase().trim();
+        String displayName = request.getDisplayName().trim();
+
+        if (userProfileRepository.existsByEmailAndStatusIn(email, Set.of(UserStatus.ACTIVE))) {
+            throw new ConflictException("Email is already registered: " + email);
+        }
+        if (userProfileRepository.existsByDisplayName(displayName)) {
+            throw new ConflictException("Display name is already taken: " + displayName);
+        }
+
+        UserProfile profile;
+        try {
+            profile = UserProfile.builder()
+                    .keycloakUserId(currentKeycloakUserId)
+                    .email(email)
+                    .displayName(displayName)
+                    .phoneNumber(request.getPhoneNumber())
+                    .status(UserStatus.ACTIVE)
+                    .build();
+            profile = userProfileRepository.save(profile);
+            log.info("UserProfile persisted: id={} email={}", profile.getId(), email);
+        } catch (Exception dbEx) {
+            throw new IllegalStateException("Registration failed during profile persistence. Please try again.", dbEx);
+        }
+
+        return RegistrationResponse.builder()
+                .userProfileId(profile.getId())
+                .keycloakUserId(currentKeycloakUserId)
+                .email(email)
+                .displayName(profile.getDisplayName())
+                .status(UserStatus.ACTIVE)
+                .message("Registration successful.")
+                .build();
+    }
+
 
     @Override
     @Transactional
     public void resendVerificationEmail(ResendVerificationRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        UserProfile profile = userProfileRepository.findByEmail(email)
+        UserProfile profile = userProfileRepository.findByEmailAndStatusIn(email, Set.of(UserStatus.PENDING_MAIL_VERIFICATION))
                 .orElseThrow(() -> new NotFoundException("No account found for email: " + email));
 
         if (profile.getStatus() != UserStatus.PENDING_MAIL_VERIFICATION) {
